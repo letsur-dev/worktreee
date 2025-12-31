@@ -37,6 +37,8 @@ OpenWebUI / Client
 │  │   - get_status                │  │
 │  │   - update_task_status        │  │
 │  │   - add_report                │  │
+│  │   - list_directory            │  │
+│  │   - scan_projects             │  │
 │  └───────────────┬───────────────┘  │
 │                  │                  │
 │  ┌───────────────▼───────────────┐  │
@@ -146,14 +148,27 @@ OpenAI 호환 채팅 API
 - `task_name`: 태스크 이름 (필수)
 - `content`: 보고 내용 (필수)
 
+### list_directory
+Documents 하위 디렉토리 조회
+- `path`: Documents 기준 상대경로 (선택, 없으면 루트)
+- `host`: 원격 호스트 별칭 (선택, 없으면 로컬)
+
+### scan_projects
+Documents 하위에서 Git 프로젝트 스캔
+- `path`: Documents 기준 상대경로 (선택, 없으면 전체)
+- `host`: 원격 호스트 별칭 (선택, 없으면 로컬)
+
 ## 환경변수
 
 | 변수 | 설명 | 기본값 |
 |-----|------|-------|
-| LITELLM_ENDPOINT | LLM API 엔드포인트 | https://gateway.letsur.ai/v1 |
-| LITELLM_API_KEY | API 키 | - |
-| LITELLM_MODEL | 사용할 모델 | claude-opus-4-5-20251101 |
+| OPENAI_BASE_URL | LLM API 엔드포인트 | https://gateway.letsur.ai/v1 |
+| OPENAI_API_KEY | API 키 | - |
+| OPENAI_MODEL | 사용할 모델 | claude-opus-4-5-20251101 |
 | DATA_PATH | 데이터 저장 경로 | /data |
+| LOCAL_BASE_PATH | 로컬 Documents 경로 | /mnt/documents |
+| REMOTE_BASE_PATH | 원격 Documents 경로 | ~/Documents |
+| REMOTE_HOSTS | 원격 호스트 (별칭:주소) | (없음, 선택사항) |
 
 ## 실행
 
@@ -209,10 +224,11 @@ projects:
 - [ ] branch 자동 생성
 - [ ] 태스크 context 파일 생성
 
-### Phase 3: 원격 머신 (SSH)
-- [ ] SSH 연결 설정
-- [ ] 원격 명령 실행
-- [ ] 멀티 머신 지원
+### Phase 3: 원격 머신 (SSH) ✅
+- [x] SSH 연결 설정
+- [x] 원격 디렉토리 조회 (list_directory)
+- [x] 원격 프로젝트 스캔 (scan_projects)
+- [x] 멀티 호스트 지원 (REMOTE_HOSTS 환경변수)
 
 ### Phase 4: 고도화
 - [ ] 스트리밍 응답

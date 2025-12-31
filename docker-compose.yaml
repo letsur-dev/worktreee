@@ -6,6 +6,8 @@ services:
       - "9001:8000"
     volumes:
       - ./data:/data
+      - /home/amos/Documents:/mnt/documents:ro
+      - /home/amos/.ssh:/root/.ssh:ro
     environment:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}

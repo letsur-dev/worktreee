@@ -136,6 +136,47 @@ TOOLS = [
             },
         },
     },
+    # 통합 도구 (로컬/원격 공통, Documents 기준)
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "Documents 하위 디렉토리 내용을 조회합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Documents 기준 상대경로 (예: 'letsur'). 생략하면 Documents 루트.",
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "'mac'이면 원격 Mac, 생략하면 로컬(NUC).",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scan_projects",
+            "description": "Documents 하위를 스캔하여 Git 프로젝트를 찾습니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Documents 기준 상대경로 (예: 'letsur'). 생략하면 전체 스캔.",
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "'mac'이면 원격 Mac, 생략하면 로컬(NUC).",
+                    },
+                },
+            },
+        },
+    },
 ]
 
 
@@ -171,6 +212,17 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 task_name=arguments["task_name"],
                 content=arguments["content"],
+            )
+        # 통합 도구 (로컬/원격 공통, Documents 기준)
+        elif name == "list_directory":
+            result = state_manager.list_directory(
+                path=arguments.get("path", ""),
+                host=arguments.get("host"),
+            )
+        elif name == "scan_projects":
+            result = state_manager.scan_projects(
+                path=arguments.get("path", ""),
+                host=arguments.get("host"),
             )
         else:
             result = {"error": f"알 수 없는 도구: {name}"}
