@@ -1,5 +1,7 @@
+import hashlib
 import os
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -402,9 +404,11 @@ class StateManager:
         machine = proj.get("machine", "local")
         branch = task.get("branch", task_name)
         sanitized = self._sanitize_branch_name(branch)
-        # 워크트리 폴더 구조: {repo}-worktrees/{branch}
+        # 짧은 해시 생성 (타임스탬프 기반, 7자)
+        short_hash = hashlib.sha1(str(time.time()).encode()).hexdigest()[:7]
+        # 워크트리 폴더 구조: {repo}-worktrees/{branch}-{hash}
         worktrees_dir = f"{repo_path}-worktrees"
-        worktree_path = f"{worktrees_dir}/{sanitized}"
+        worktree_path = f"{worktrees_dir}/{sanitized}-{short_hash}"
 
         # 머신에 따라 로컬/원격 실행
         # "local" 또는 local_machine 설정값(기본: "nuc")이면 로컬 실행
