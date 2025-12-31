@@ -321,6 +321,144 @@ class StateManager:
         except Exception as e:
             return {"error": str(e)}
 
+    def _sanitize_branch_name(self, branch: str) -> str:
+        """브랜치 이름을 디렉토리명으로 사용 가능하게 변환"""
+        # feature/foo-bar -> feature-foo-bar
+        return branch.replace("/", "-").replace("\\", "-")
+
+    def create_worktree(self, project: str, task_name: str) -> dict:
+        """태스크용 Git worktree를 생성합니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if task_name not in proj.get("tasks", {}):
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        task = proj["tasks"][task_name]
+        if task.get("worktree"):
+            return {"error": f"워크트리가 이미 존재합니다: {task['worktree']}"}
+
+        repo_path = proj["repo_path"]
+        machine = proj.get("machine", "local")
+        branch = task.get("branch", task_name)
+        sanitized = self._sanitize_branch_name(branch)
+        # 워크트리 폴더 구조: {repo}-worktrees/{branch}
+        worktrees_dir = f"{repo_path}-worktrees"
+        worktree_path = f"{worktrees_dir}/{sanitized}"
+
+        # 머신에 따라 로컬/원격 실행
+        if machine == "local":
+            result = self._create_worktree_local(repo_path, worktree_path, branch)
+        else:
+            # machine이 호스트 별칭이거나 직접 주소
+            resolved_host = self._resolve_host(machine)
+            if isinstance(resolved_host, dict):  # 에러
+                return resolved_host
+            result = self._create_worktree_remote(repo_path, worktree_path, branch, resolved_host)
+
+        if "error" in result:
+            return result
+
+        # 성공시 태스크에 worktree 경로 저장
+        task["worktree"] = worktree_path
+        self._save(data)
+        return {
+            "success": True,
+            "project": project,
+            "task": task_name,
+            "worktree": worktree_path,
+            "branch": branch,
+        }
+
+    def _create_worktree_local(self, repo_path: str, worktree_path: str, branch: str) -> dict:
+        """로컬에서 Git worktree 생성"""
+        try:
+            # 이미 워크트리가 있는지 확인
+            if os.path.exists(worktree_path):
+                return {"error": f"디렉토리가 이미 존재합니다: {worktree_path}"}
+
+            # worktrees 디렉토리 생성
+            worktrees_dir = os.path.dirname(worktree_path)
+            os.makedirs(worktrees_dir, exist_ok=True)
+
+            # 브랜치 존재 여부 확인
+            check_branch = subprocess.run(
+                ["git", "-C", repo_path, "rev-parse", "--verify", branch],
+                capture_output=True, text=True
+            )
+            branch_exists = check_branch.returncode == 0
+
+            # 원격 브랜치 확인
+            if not branch_exists:
+                check_remote = subprocess.run(
+                    ["git", "-C", repo_path, "rev-parse", "--verify", f"origin/{branch}"],
+                    capture_output=True, text=True
+                )
+                if check_remote.returncode == 0:
+                    branch_exists = True
+
+            # 워크트리 생성
+            if branch_exists:
+                # 기존 브랜치로 워크트리 생성
+                cmd = ["git", "-C", repo_path, "worktree", "add", worktree_path, branch]
+            else:
+                # 새 브랜치 생성하며 워크트리 생성
+                cmd = ["git", "-C", repo_path, "worktree", "add", "-b", branch, worktree_path]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode != 0:
+                return {"error": f"워크트리 생성 실패: {result.stderr}"}
+
+            return {"success": True, "worktree": worktree_path}
+        except subprocess.TimeoutExpired:
+            return {"error": "워크트리 생성 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _create_worktree_remote(self, repo_path: str, worktree_path: str, branch: str, host: str) -> dict:
+        """SSH로 원격에서 Git worktree 생성"""
+        # 원격 경로에서 ~ 처리
+        repo_path = repo_path.replace("~", "$HOME")
+        worktree_path = worktree_path.replace("~", "$HOME")
+
+        # worktrees 디렉토리 경로
+        worktrees_dir = os.path.dirname(worktree_path)
+
+        # 브랜치 존재 여부 확인 후 워크트리 생성하는 스크립트
+        script = f'''
+cd {repo_path} || exit 1
+if [ -d "{worktree_path}" ]; then
+    echo "ERROR: 디렉토리가 이미 존재합니다: {worktree_path}"
+    exit 1
+fi
+# worktrees 디렉토리 생성
+mkdir -p "{worktrees_dir}"
+# 브랜치 존재 여부 확인
+if git rev-parse --verify {branch} >/dev/null 2>&1 || git rev-parse --verify origin/{branch} >/dev/null 2>&1; then
+    git worktree add "{worktree_path}" {branch}
+else
+    git worktree add -b {branch} "{worktree_path}"
+fi
+'''
+        cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+            host, script
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout
+                return {"error": f"워크트리 생성 실패: {error_msg}"}
+
+            return {"success": True, "worktree": worktree_path, "host": host}
+        except subprocess.TimeoutExpired:
+            return {"error": "SSH 연결 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
 
 # 싱글톤 인스턴스
 state_manager = StateManager()

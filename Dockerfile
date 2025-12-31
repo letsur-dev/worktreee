@@ -1,7 +1,10 @@
 FROM python:3.11-slim
 
-# SSH 클라이언트 설치
-RUN apt-get update && apt-get install -y openssh-client && rm -rf /var/lib/apt/lists/*
+# SSH 클라이언트 및 Git 설치
+RUN apt-get update && apt-get install -y openssh-client git && rm -rf /var/lib/apt/lists/*
+
+# Git safe.directory 설정 (마운트된 볼륨 신뢰)
+RUN git config --global --add safe.directory '*'
 
 WORKDIR /app
 

@@ -33,10 +33,11 @@ OpenWebUI / Client
 │  │         PM Tools              │  │
 │  │   - add_project               │  │
 │  │   - list_projects             │  │
-│  │   - create_task               │  │
+│  │   - create_task (+ worktree)  │  │
 │  │   - get_status                │  │
 │  │   - update_task_status        │  │
 │  │   - add_report                │  │
+│  │   - create_worktree           │  │
 │  │   - list_directory            │  │
 │  │   - scan_projects             │  │
 │  └───────────────┬───────────────┘  │
@@ -158,6 +159,19 @@ Documents 하위에서 Git 프로젝트 스캔
 - `path`: Documents 기준 상대경로 (선택, 없으면 전체)
 - `host`: 원격 호스트 별칭 (선택, 없으면 로컬)
 
+### create_worktree
+기존 태스크에 Git worktree 생성 (태스크 생성시 자동 호출됨)
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+
+워크트리 구조:
+```
+{repo}-worktrees/
+├── feature-a/
+├── feature-b/
+└── bugfix-c/
+```
+
 ## 환경변수
 
 | 변수 | 설명 | 기본값 |
@@ -219,9 +233,10 @@ projects:
 - [x] 상태 저장 (YAML)
 - [x] Docker 배포
 
-### Phase 2: Git Worktree
-- [ ] create_task에서 worktree 자동 생성
-- [ ] branch 자동 생성
+### Phase 2: Git Worktree ✅
+- [x] create_task에서 worktree 자동 생성
+- [x] branch 자동 생성
+- [x] 로컬/원격 모두 지원
 - [ ] 태스크 context 파일 생성
 
 ### Phase 3: 원격 머신 (SSH) ✅

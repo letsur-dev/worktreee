@@ -136,6 +136,27 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_worktree",
+            "description": "기존 태스크에 Git worktree를 생성합니다. 태스크 생성시 자동으로 호출되지만, 수동으로도 호출 가능합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "태스크 이름",
+                    },
+                },
+                "required": ["project", "task_name"],
+            },
+        },
+    },
     # 통합 도구 (로컬/원격 공통, Documents 기준)
     {
         "type": "function",
@@ -200,7 +221,23 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 task_name=arguments["task_name"],
                 context=arguments["context"],
             )
-            # TODO: Phase 2에서 worktree 생성 로직 추가
+            # Phase 2: 워크트리 자동 생성
+            if result.get("success"):
+                worktree_result = state_manager.create_worktree(
+                    project=arguments["project"],
+                    task_name=arguments["task_name"],
+                )
+                # 워크트리 생성 결과를 응답에 병합
+                if worktree_result.get("success"):
+                    result["worktree"] = worktree_result["worktree"]
+                    result["branch"] = worktree_result["branch"]
+                else:
+                    result["worktree_error"] = worktree_result.get("error")
+        elif name == "create_worktree":
+            result = state_manager.create_worktree(
+                project=arguments["project"],
+                task_name=arguments["task_name"],
+            )
         elif name == "update_task_status":
             result = state_manager.update_task_status(
                 project=arguments["project"],
