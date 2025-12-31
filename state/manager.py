@@ -408,7 +408,9 @@ class StateManager:
         worktree_path = f"{worktrees_dir}/{sanitized}"
 
         # 머신에 따라 로컬/원격 실행
-        if machine == "local":
+        # "local" 또는 local_machine 설정값(기본: "nuc")이면 로컬 실행
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+        if is_local:
             result = self._create_worktree_local(repo_path, worktree_path, branch)
         else:
             # machine이 호스트 별칭이거나 직접 주소
