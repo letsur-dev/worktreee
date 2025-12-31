@@ -1,0 +1,14 @@
+services:
+  pm-agent:
+    build: .
+    container_name: pm-agent
+    ports:
+      - "9001:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-claude-opus-4-5-20251101}
+      - DATA_PATH=/data
+    restart: unless-stopped
