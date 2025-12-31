@@ -47,6 +47,70 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "delete_project",
+            "description": "프로젝트를 삭제합니다. 기본은 soft delete (복구 가능).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "삭제할 프로젝트 이름",
+                    },
+                    "hard": {
+                        "type": "boolean",
+                        "description": "true면 완전 삭제 (복구 불가)",
+                        "default": False,
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "restore_project",
+            "description": "삭제된 프로젝트를 복구합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "복구할 프로젝트 이름",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_project",
+            "description": "프로젝트 정보를 수정합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "수정할 프로젝트 이름",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "새 Git 레포지토리 경로",
+                    },
+                    "machine": {
+                        "type": "string",
+                        "description": "새 실행 머신 (local, mac 등)",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_status",
             "description": "프로젝트 또는 전체 현황을 조회합니다.",
             "parameters": {
@@ -212,6 +276,19 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             )
         elif name == "list_projects":
             result = state_manager.list_projects()
+        elif name == "delete_project":
+            result = state_manager.delete_project(
+                name=arguments["name"],
+                hard=arguments.get("hard", False),
+            )
+        elif name == "restore_project":
+            result = state_manager.restore_project(name=arguments["name"])
+        elif name == "update_project":
+            result = state_manager.update_project(
+                name=arguments["name"],
+                repo_path=arguments.get("repo_path"),
+                machine=arguments.get("machine"),
+            )
         elif name == "get_status":
             result = state_manager.get_status(project=arguments.get("project"))
         elif name == "create_task":

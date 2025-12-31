@@ -46,21 +46,79 @@ class StateManager:
         self._save(data)
         return {"success": True, "project": name}
 
-    def list_projects(self) -> list[dict]:
+    def list_projects(self, include_deleted: bool = False) -> list[dict]:
         data = self._load()
         projects = []
         for name, info in data["projects"].items():
+            is_deleted = bool(info.get("deleted_at"))
+            if is_deleted and not include_deleted:
+                continue
             projects.append({
                 "name": name,
                 "repo_path": info["repo_path"],
                 "machine": info["machine"],
                 "task_count": len(info.get("tasks", {})),
+                "deleted_at": info.get("deleted_at"),
             })
         return projects
 
     def get_project(self, name: str) -> dict | None:
         data = self._load()
         return data["projects"].get(name)
+
+    def delete_project(self, name: str, hard: bool = False) -> dict:
+        """프로젝트를 삭제합니다. (기본: soft delete)"""
+        data = self._load()
+        if name not in data["projects"]:
+            return {"error": f"프로젝트 '{name}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][name]
+        if proj.get("deleted_at") and not hard:
+            return {"error": f"프로젝트 '{name}'은(는) 이미 삭제되었습니다."}
+
+        if hard:
+            del data["projects"][name]
+            self._save(data)
+            return {"success": True, "deleted": name, "type": "hard"}
+        else:
+            proj["deleted_at"] = datetime.now().isoformat()
+            self._save(data)
+            return {"success": True, "deleted": name, "type": "soft", "recoverable": True}
+
+    def restore_project(self, name: str) -> dict:
+        """삭제된 프로젝트를 복구합니다."""
+        data = self._load()
+        if name not in data["projects"]:
+            return {"error": f"프로젝트 '{name}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][name]
+        if not proj.get("deleted_at"):
+            return {"error": f"프로젝트 '{name}'은(는) 삭제된 상태가 아닙니다."}
+
+        del proj["deleted_at"]
+        self._save(data)
+        return {"success": True, "restored": name}
+
+    def update_project(self, name: str, repo_path: str | None = None, machine: str | None = None) -> dict:
+        """프로젝트 정보를 수정합니다."""
+        data = self._load()
+        if name not in data["projects"]:
+            return {"error": f"프로젝트 '{name}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][name]
+        updated = []
+        if repo_path:
+            proj["repo_path"] = repo_path
+            updated.append("repo_path")
+        if machine:
+            proj["machine"] = machine
+            updated.append("machine")
+
+        if not updated:
+            return {"error": "수정할 항목이 없습니다. repo_path 또는 machine을 지정해주세요."}
+
+        self._save(data)
+        return {"success": True, "project": name, "updated": updated}
 
     def add_task(
         self,
