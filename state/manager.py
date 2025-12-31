@@ -531,6 +531,115 @@ fi
         except Exception as e:
             return {"error": str(e)}
 
+    def sync_worktree(self, project: str, task_name: str, base_branch: str = "develop") -> dict:
+        """워크트리 브랜치를 base_branch 기준으로 rebase합니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if task_name not in proj.get("tasks", {}):
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        task = proj["tasks"][task_name]
+        worktree_path = task.get("worktree")
+        if not worktree_path:
+            return {"error": f"워크트리가 없습니다. 먼저 create_worktree를 실행해주세요."}
+
+        machine = proj.get("machine", "local")
+        repo_path = proj["repo_path"]
+
+        # 머신에 따라 로컬/원격 실행
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+        if is_local:
+            result = self._sync_worktree_local(repo_path, worktree_path, base_branch)
+        else:
+            resolved_host = self._resolve_host(machine)
+            if isinstance(resolved_host, dict):
+                return resolved_host
+            result = self._sync_worktree_remote(repo_path, worktree_path, base_branch, resolved_host)
+
+        return result
+
+    def _sync_worktree_local(self, repo_path: str, worktree_path: str, base_branch: str) -> dict:
+        """로컬 워크트리 rebase"""
+        try:
+            # 1. 메인 레포에서 fetch
+            fetch_result = subprocess.run(
+                ["git", "-C", repo_path, "fetch", "origin"],
+                capture_output=True, text=True, timeout=60
+            )
+            if fetch_result.returncode != 0:
+                return {"error": f"fetch 실패: {fetch_result.stderr}"}
+
+            # 2. 워크트리에서 rebase
+            rebase_result = subprocess.run(
+                ["git", "-C", worktree_path, "rebase", f"origin/{base_branch}"],
+                capture_output=True, text=True, timeout=120
+            )
+            if rebase_result.returncode != 0:
+                # rebase 충돌 발생
+                subprocess.run(
+                    ["git", "-C", worktree_path, "rebase", "--abort"],
+                    capture_output=True, text=True
+                )
+                return {
+                    "error": "rebase 충돌 발생. 수동 해결 필요.",
+                    "conflict": True,
+                    "message": rebase_result.stderr
+                }
+
+            return {
+                "success": True,
+                "worktree": worktree_path,
+                "rebased_onto": f"origin/{base_branch}",
+                "message": rebase_result.stdout or "Rebase 완료"
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": "타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _sync_worktree_remote(self, repo_path: str, worktree_path: str, base_branch: str, host: str) -> dict:
+        """원격 워크트리 rebase"""
+        repo_path = repo_path.replace("~", "$HOME")
+        worktree_path = worktree_path.replace("~", "$HOME")
+
+        script = f'''
+cd {repo_path} || exit 1
+git fetch origin
+cd {worktree_path} || exit 1
+if ! git rebase origin/{base_branch}; then
+    git rebase --abort
+    echo "CONFLICT: rebase 충돌 발생. 수동 해결 필요."
+    exit 1
+fi
+echo "Rebase 완료: origin/{base_branch}"
+'''
+        cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+            host, script
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout
+                if "CONFLICT" in error_msg or "conflict" in error_msg.lower():
+                    return {"error": "rebase 충돌 발생. 수동 해결 필요.", "conflict": True}
+                return {"error": f"rebase 실패: {error_msg}"}
+
+            return {
+                "success": True,
+                "worktree": worktree_path,
+                "rebased_onto": f"origin/{base_branch}",
+                "host": host
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": "SSH 연결 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
 
 # 싱글톤 인스턴스
 state_manager = StateManager()

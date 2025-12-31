@@ -221,6 +221,31 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_worktree",
+            "description": "워크트리를 최신 base 브랜치 기준으로 rebase합니다. 충돌 발생시 abort하고 알려줍니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "태스크 이름",
+                    },
+                    "base_branch": {
+                        "type": "string",
+                        "description": "rebase 기준 브랜치 (기본: develop)",
+                    },
+                },
+                "required": ["project", "task_name"],
+            },
+        },
+    },
     # 통합 도구 (로컬/원격 공통, Documents 기준)
     {
         "type": "function",
@@ -314,6 +339,12 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             result = state_manager.create_worktree(
                 project=arguments["project"],
                 task_name=arguments["task_name"],
+            )
+        elif name == "sync_worktree":
+            result = state_manager.sync_worktree(
+                project=arguments["project"],
+                task_name=arguments["task_name"],
+                base_branch=arguments.get("base_branch", "develop"),
             )
         elif name == "update_task_status":
             result = state_manager.update_task_status(
