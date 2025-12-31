@@ -380,10 +380,9 @@ class StateManager:
             return {"error": str(e)}
 
     def _sanitize_branch_name(self, branch: str) -> str:
-        """브랜치 이름을 디렉토리 경로로 변환 (네스트 구조 유지)"""
-        # feature/PROJ-123/auth -> feature/PROJ-123/auth (유지)
-        # 백슬래시만 슬래시로 변환
-        return branch.replace("\\", "/")
+        """브랜치 이름을 디렉토리명으로 변환 (flat 구조)"""
+        # feature/PROJ-123/auth -> feature-PROJ-123-auth
+        return branch.replace("/", "-").replace("\\", "-")
 
     def create_worktree(self, project: str, task_name: str) -> dict:
         """태스크용 Git worktree를 생성합니다."""
