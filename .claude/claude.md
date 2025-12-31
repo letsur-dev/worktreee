@@ -126,6 +126,22 @@ OpenAI 호환 채팅 API
 
 ### list_projects
 등록된 프로젝트 목록 조회
+- `include_deleted`: 삭제된 프로젝트도 포함 (기본: false)
+
+### delete_project
+프로젝트 삭제 (기본: soft delete)
+- `name`: 프로젝트 이름 (필수)
+- `hard`: 완전 삭제 여부 (기본: false)
+
+### restore_project
+삭제된 프로젝트 복구
+- `name`: 프로젝트 이름 (필수)
+
+### update_project
+프로젝트 정보 수정
+- `name`: 프로젝트 이름 (필수)
+- `repo_path`: 새 레포 경로 (선택)
+- `machine`: 새 머신 (선택)
 
 ### get_status
 프로젝트/태스크 현황 조회
@@ -164,13 +180,15 @@ Documents 하위에서 Git 프로젝트 스캔
 - `project`: 프로젝트 이름 (필수)
 - `task_name`: 태스크 이름 (필수)
 
-워크트리 구조:
+워크트리 구조 (flat + 해시):
 ```
 {repo}-worktrees/
-├── feature-a/
-├── feature-b/
-└── bugfix-c/
+├── feature-a-a1b2c3d/
+├── feature-b-d4e5f6g/
+└── bugfix-c-h7i8j9k/
 ```
+- 브랜치명의 `/`는 `-`로 변환
+- 7자 해시 suffix 추가 (동일 브랜치 재생성 가능)
 
 ## 환경변수
 
@@ -180,9 +198,12 @@ Documents 하위에서 Git 프로젝트 스캔
 | OPENAI_API_KEY | API 키 | - |
 | OPENAI_MODEL | 사용할 모델 | claude-opus-4-5-20251101 |
 | DATA_PATH | 데이터 저장 경로 | /data |
-| LOCAL_BASE_PATH | 로컬 Documents 경로 | /mnt/documents |
+| LOCAL_BASE_PATH | 로컬 Documents 경로 | /home/amos/Documents |
 | REMOTE_BASE_PATH | 원격 Documents 경로 | ~/Documents |
+| LOCAL_MACHINE | 서버가 돌아가는 머신 별칭 | nuc |
 | REMOTE_HOSTS | 원격 호스트 (별칭:주소) | (없음, 선택사항) |
+
+> **Note**: Docker 마운트 경로와 호스트 경로를 동일하게 설정해야 git worktree가 정상 작동합니다.
 
 ## 실행
 
