@@ -640,6 +640,123 @@ echo "Rebase 완료: origin/{base_branch}"
         except Exception as e:
             return {"error": str(e)}
 
+    def start_claude_session(self, project: str, task_name: str) -> dict:
+        """태스크용 Claude Code 세션을 시작하고 레포 분석을 수행합니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if task_name not in proj.get("tasks", {}):
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        task = proj["tasks"][task_name]
+        worktree_path = task.get("worktree")
+        if not worktree_path:
+            return {"error": "워크트리가 없습니다. 먼저 create_worktree를 실행해주세요."}
+
+        context = task.get("context", "")
+        branch = task.get("branch", task_name)
+
+        # Claude에게 전달할 프롬프트
+        prompt = f"""이 레포지토리를 분석하고 다음 태스크를 이해해주세요.
+
+## 태스크 정보
+- 프로젝트: {project}
+- 브랜치: {branch}
+- 워크트리: {worktree_path}
+
+## 태스크 컨텍스트
+{context}
+
+## 요청사항
+1. 레포지토리 구조를 파악해주세요
+2. 태스크 수행에 필요한 파일들을 찾아주세요
+3. 구현 계획을 간단히 세워주세요
+
+분석이 완료되면 사용자가 'claude --continue'로 이어서 작업할 수 있습니다."""
+
+        machine = proj.get("machine", "local")
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+
+        if is_local:
+            result = self._start_claude_session_local(worktree_path, prompt)
+        else:
+            resolved_host = self._resolve_host(machine)
+            if isinstance(resolved_host, dict):
+                return resolved_host
+            result = self._start_claude_session_remote(worktree_path, prompt, resolved_host)
+
+        # 세션 정보 저장
+        if result.get("success"):
+            task["claude_session"] = {
+                "started": datetime.now().isoformat(),
+                "worktree": worktree_path,
+            }
+            self._save(data)
+
+        return result
+
+    def _start_claude_session_local(self, worktree_path: str, prompt: str) -> dict:
+        """로컬에서 Claude 세션 시작"""
+        try:
+            # claude -p "prompt" --print 로 실행 (non-interactive)
+            result = subprocess.run(
+                ["claude", "-p", prompt, "--print"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5분 타임아웃
+            )
+
+            if result.returncode != 0:
+                return {"error": f"Claude 실행 실패: {result.stderr}"}
+
+            return {
+                "success": True,
+                "worktree": worktree_path,
+                "analysis": result.stdout,
+                "message": f"세션 시작 완료. 'cd {worktree_path} && claude --continue'로 이어서 작업하세요."
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": "Claude 세션 타임아웃 (5분)"}
+        except FileNotFoundError:
+            return {"error": "Claude CLI가 설치되어 있지 않습니다."}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _start_claude_session_remote(self, worktree_path: str, prompt: str, host: str) -> dict:
+        """원격에서 Claude 세션 시작"""
+        worktree_path = worktree_path.replace("~", "$HOME")
+        # 프롬프트에서 특수문자 이스케이프
+        escaped_prompt = prompt.replace("'", "'\\''")
+
+        script = f'''
+cd {worktree_path} || exit 1
+claude -p '{escaped_prompt}' --print
+'''
+        cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+            host, script
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                return {"error": f"Claude 실행 실패: {result.stderr or result.stdout}"}
+
+            return {
+                "success": True,
+                "worktree": worktree_path,
+                "host": host,
+                "analysis": result.stdout,
+                "message": f"세션 시작 완료. 원격에서 'cd {worktree_path} && claude --continue'로 이어서 작업하세요."
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": "SSH/Claude 세션 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
 
 # 싱글톤 인스턴스
 state_manager = StateManager()

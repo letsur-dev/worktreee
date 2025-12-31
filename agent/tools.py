@@ -246,6 +246,27 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_claude_session",
+            "description": "태스크용 Claude Code 세션을 시작합니다. 레포를 분석하고 태스크 컨텍스트를 이해한 후, 사용자가 'claude --continue'로 이어서 작업할 수 있습니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "태스크 이름",
+                    },
+                },
+                "required": ["project", "task_name"],
+            },
+        },
+    },
     # 통합 도구 (로컬/원격 공통, Documents 기준)
     {
         "type": "function",
@@ -345,6 +366,11 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 task_name=arguments["task_name"],
                 base_branch=arguments.get("base_branch", "develop"),
+            )
+        elif name == "start_claude_session":
+            result = state_manager.start_claude_session(
+                project=arguments["project"],
+                task_name=arguments["task_name"],
             )
         elif name == "update_task_status":
             result = state_manager.update_task_status(

@@ -8,9 +8,11 @@ services:
       - ./data:/data
       - /home/amos/Documents:/home/amos/Documents
       - /home/amos/.ssh:/root/.ssh:ro
+      - /home/amos/.claude:/root/.claude  # Claude CLI 세션 공유
     environment:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-claude-opus-4-5-20251101}
+      - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
       - DATA_PATH=/data
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # Claude CLI용
     restart: unless-stopped
