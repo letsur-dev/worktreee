@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     data_path: str = "/data"
 
     # Documents 기준 경로
-    local_base_path: str = "/mnt/documents"  # Docker 내부 마운트 경로
+    local_base_path: str = "/home/amos/Documents"  # 호스트와 동일한 경로로 마운트
     remote_base_path: str = "~/Documents"    # SSH 원격 경로
 
     # 로컬 머신 별칭 (서버가 돌아가는 머신)
