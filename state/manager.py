@@ -447,6 +447,12 @@ class StateManager:
             worktrees_dir = os.path.dirname(worktree_path)
             os.makedirs(worktrees_dir, exist_ok=True)
 
+            # 최신 원격 브랜치 정보 가져오기
+            subprocess.run(
+                ["git", "-C", repo_path, "fetch", "origin"],
+                capture_output=True, text=True, timeout=60
+            )
+
             # 브랜치 존재 여부 확인
             check_branch = subprocess.run(
                 ["git", "-C", repo_path, "rev-parse", "--verify", branch],
@@ -499,6 +505,8 @@ if [ -d "{worktree_path}" ]; then
 fi
 # worktrees 디렉토리 생성
 mkdir -p "{worktrees_dir}"
+# 최신 원격 브랜치 정보 가져오기
+git fetch origin
 # 브랜치 존재 여부 확인
 if git rev-parse --verify {branch} >/dev/null 2>&1 || git rev-parse --verify origin/{branch} >/dev/null 2>&1; then
     git worktree add "{worktree_path}" {branch}
