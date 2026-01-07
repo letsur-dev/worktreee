@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # 예: "mac:amos@100.73.228.37,server:user@192.168.1.100"
     remote_hosts: str = ""  # 기본값 없음, .env에서 설정
 
+    # Jira API
+    jira_url: str = ""
+    jira_email: str = ""
+    jira_api_token: str = ""
+
     @property
     def remote_hosts_map(self) -> dict[str, str]:
         """원격 호스트 별칭 맵 반환"""

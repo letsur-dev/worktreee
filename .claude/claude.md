@@ -4,6 +4,42 @@
 멀티 프로젝트 관리를 위한 대화형 PM(Project Manager) Agent.
 OpenAI 호환 API를 제공하여 OpenWebUI 등에서 모델처럼 연결 가능.
 
+## 왜 만들었나?
+
+### 문제
+- **레포가 너무 많음**: 여러 프로젝트를 동시에 관리해야 함
+- **컨텍스트 스위칭 비용**: 프로젝트/태스크 간 전환 시 매번 환경 설정 필요
+- **Claude 세션 관리**: 각 작업마다 새로 컨텍스트 주입해야 함
+- **PR 리뷰 대응**: 리뷰 받으면 해당 작업 환경으로 다시 돌아가야 함
+
+### 해결
+```
+"PRDEL-107 태스크 만들어줘"
+  → 워크트리 자동 생성
+  → Claude 세션 자동 시작
+  → `claude --continue`로 바로 작업!
+```
+
+- **Git Worktree 자동화**: 태스크마다 독립된 워크트리, 브랜치 충돌 없음
+- **Claude 세션 자동 시작**: 레포 분석 + 태스크 컨텍스트 주입 완료 상태로 시작
+- **즉시 재개 가능**: PR 리뷰 받으면 `claude --continue`로 해당 세션 이어서 작업
+- **멀티 머신 지원**: NUC, Mac 등 여러 머신의 프로젝트 통합 관리
+- **Jira 연동**: 티켓 정보 자동 조회로 컨텍스트 확보
+
+### 워크플로우 예시
+```
+1. PM Agent: "PRDEL-107 초대 기능 태스크 만들어줘"
+   → 워크트리 생성, Claude 세션 시작
+
+2. 터미널: `claude --continue`
+   → 바로 작업 시작 (컨텍스트 이미 주입됨)
+
+3. PR 제출 → 리뷰 받음
+
+4. 터미널: `cd lamp-web-worktrees/PRDEL-107-xxx && claude --continue`
+   → 리뷰 내용 반영 작업 즉시 재개
+```
+
 ## 아키텍처
 
 ```
@@ -26,20 +62,24 @@ OpenWebUI / Client
 │  └───────────────┬───────────────┘  │
 │                  │                  │
 │  ┌───────────────▼───────────────┐  │
-│  │     LLM Client (LiteLLM)      │──────► gateway.letsur.ai
+│  │     LLM Client (OpenAI)       │──────► gateway.letsur.ai
 │  └───────────────────────────────┘  │
 │                  │                  │
 │  ┌───────────────▼───────────────┐  │
 │  │         PM Tools              │  │
 │  │   - add_project               │  │
 │  │   - list_projects             │  │
-│  │   - create_task (+ worktree)  │  │
+│  │   - create_task (+ worktree   │  │
+│  │       + claude session)       │  │
+│  │   - delete_task               │  │
 │  │   - get_status                │  │
 │  │   - update_task_status        │  │
-│  │   - add_report                │  │
 │  │   - create_worktree           │  │
+│  │   - sync_worktree             │  │
+│  │   - start_claude_session      │  │
 │  │   - list_directory            │  │
 │  │   - scan_projects             │  │
+│  │   - get_jira_issue            │  │
 │  └───────────────┬───────────────┘  │
 │                  │                  │
 │  ┌───────────────▼───────────────┐  │
@@ -148,22 +188,21 @@ OpenAI 호환 채팅 API
 - `project`: 특정 프로젝트 (선택, 없으면 전체)
 
 ### create_task
-프로젝트에 태스크 생성
+프로젝트에 태스크 생성 (워크트리 + Claude 세션 자동 시작)
 - `project`: 프로젝트 이름 (필수)
-- `task_name`: 태스크 이름 (필수)
+- `task_name`: 태스크 이름 - 워크트리 폴더명 (필수, 예: PRDEL-107-invite-feature)
+- `branch`: Git 브랜치명 (선택, 예: feature/PRDEL-107/invite-feature, 생략시 task_name 사용)
 - `context`: 태스크 컨텍스트 (필수)
+
+동작:
+1. 태스크 등록 → 2. 워크트리 생성 → 3. Claude 세션 자동 시작
+4. 사용자가 `claude --continue`로 바로 작업 가능
 
 ### update_task_status
 태스크 상태 업데이트
 - `project`: 프로젝트 이름 (필수)
 - `task_name`: 태스크 이름 (필수)
 - `status`: pending/in_progress/completed (필수)
-
-### add_report
-태스크에 진행 보고 추가
-- `project`: 프로젝트 이름 (필수)
-- `task_name`: 태스크 이름 (필수)
-- `content`: 보고 내용 (필수)
 
 ### list_directory
 Documents 하위 디렉토리 조회
@@ -183,12 +222,47 @@ Documents 하위에서 Git 프로젝트 스캔
 워크트리 구조 (flat + 해시):
 ```
 {repo}-worktrees/
-├── feature-a-a1b2c3d/
-├── feature-b-d4e5f6g/
-└── bugfix-c-h7i8j9k/
+├── PRDEL-107-invite-a1b2c3d/   # task_name 기반 폴더명
+├── PRDEL-108-login-d4e5f6g/
+└── fix-build-h7i8j9k/
 ```
-- 브랜치명의 `/`는 `-`로 변환
-- 7자 해시 suffix 추가 (동일 브랜치 재생성 가능)
+- **폴더명**: task_name 기반 (`/`는 `-`로 변환)
+- **브랜치명**: branch 파라미터 사용 (feature/PROJ-123/xxx 형태 가능)
+- 7자 해시 suffix 추가 (동일 이름 재생성 가능)
+- 생성 전 `git fetch origin` 자동 실행
+
+### delete_task
+태스크와 연결된 워크트리를 함께 삭제
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+- `cleanup_worktree`: 워크트리도 삭제 (기본: true)
+
+### sync_worktree
+워크트리를 base 브랜치 기준으로 rebase
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+- `base_branch`: rebase 기준 브랜치 (기본: develop)
+
+> 충돌 발생시 자동으로 `git rebase --abort` 후 알림
+
+### start_claude_session
+태스크용 Claude Code 세션 시작
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+
+동작:
+1. 워크트리에서 `claude -p "..." --print` 실행
+2. 레포 분석 및 태스크 컨텍스트 이해
+3. 세션 정보 저장 (호스트와 공유)
+4. 사용자가 `claude --continue`로 이어서 작업
+
+> **Note**: create_task 호출 시 자동으로 실행됨
+
+### get_jira_issue
+Jira 이슈 정보 조회
+- `issue_key`: Jira 이슈 키 (필수, 예: PRDEL-107, PROJ-123)
+
+반환 정보: key, summary, description, status, assignee, reporter, priority, issue_type, project, created, updated, url
 
 ## 환경변수
 
@@ -196,12 +270,15 @@ Documents 하위에서 Git 프로젝트 스캔
 |-----|------|-------|
 | OPENAI_BASE_URL | LLM API 엔드포인트 | https://gateway.letsur.ai/v1 |
 | OPENAI_API_KEY | API 키 | - |
-| OPENAI_MODEL | 사용할 모델 | claude-opus-4-5-20251101 |
+| OPENAI_MODEL | 사용할 모델 | claude-sonnet-4-20250514 |
 | DATA_PATH | 데이터 저장 경로 | /data |
 | LOCAL_BASE_PATH | 로컬 Documents 경로 | /home/amos/Documents |
 | REMOTE_BASE_PATH | 원격 Documents 경로 | ~/Documents |
 | LOCAL_MACHINE | 서버가 돌아가는 머신 별칭 | nuc |
 | REMOTE_HOSTS | 원격 호스트 (별칭:주소) | (없음, 선택사항) |
+| JIRA_URL | Jira 인스턴스 URL | (없음, 선택사항) |
+| JIRA_EMAIL | Jira 계정 이메일 | (없음, 선택사항) |
+| JIRA_API_TOKEN | Jira API 토큰 | (없음, 선택사항) |
 
 > **Note**: Docker 마운트 경로와 호스트 경로를 동일하게 설정해야 git worktree가 정상 작동합니다.
 
@@ -211,6 +288,14 @@ Documents 하위에서 Git 프로젝트 스캔
 ```bash
 docker compose up -d
 ```
+
+Docker 볼륨 마운트:
+- `/home/amos/Documents` → 로컬 프로젝트 접근
+- `/home/amos/.ssh` → SSH 키 (원격 접근)
+- `/home/amos/.claude` → Claude CLI 세션 공유
+
+> **Note**: `~/.claude` 마운트로 Claude CLI 인증이 자동 공유됩니다.
+> 별도의 ANTHROPIC_API_KEY 설정 불필요.
 
 ### 로컬 개발
 ```bash
@@ -233,16 +318,13 @@ projects:
     machine: nuc
     created: '2025-12-31T00:00:00'
     tasks:
-      feature-auth:
-        branch: feature-auth
-        worktree: null  # Phase 2
+      PRDEL-107-invite:
+        branch: feature/PRDEL-107/invite-feature
+        worktree: /home/user/projects/my-project-worktrees/PRDEL-107-invite-a1b2c3d
         status: in_progress
         context: |
-          인증 기능 구현
+          초대 기능 구현
         created: '2025-12-31T00:00:00'
-        reports:
-          - date: '2025-12-31T00:00:00'
-            content: "기본 구조 완료"
 ```
 
 ## 로드맵
@@ -258,7 +340,9 @@ projects:
 - [x] create_task에서 worktree 자동 생성
 - [x] branch 자동 생성
 - [x] 로컬/원격 모두 지원
-- [ ] 태스크 context 파일 생성
+- [x] delete_task로 워크트리 정리
+- [x] sync_worktree로 rebase 지원
+- [x] 생성 전 git fetch origin 자동 실행
 
 ### Phase 3: 원격 머신 (SSH) ✅
 - [x] SSH 연결 설정
@@ -266,7 +350,18 @@ projects:
 - [x] 원격 프로젝트 스캔 (scan_projects)
 - [x] 멀티 호스트 지원 (REMOTE_HOSTS 환경변수)
 
-### Phase 4: 고도화
+### Phase 4: Claude Code 연동 ✅
+- [x] Claude CLI 설치 (Docker)
+- [x] start_claude_session 도구
+- [x] ~/.claude 마운트로 세션 공유
+- [x] 호스트에서 `claude --continue` 가능
+- [x] create_task 시 Claude 세션 자동 시작
+
+### Phase 5: Jira 연동 ✅
+- [x] get_jira_issue 도구
+- [x] Jira API 인증 (Basic Auth)
+- [x] ADF (Atlassian Document Format) 파싱
+
+### Phase 6: 고도화
 - [ ] 스트리밍 응답
-- [ ] Git 동기화
 - [ ] 웹훅/알림

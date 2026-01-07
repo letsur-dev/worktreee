@@ -14,5 +14,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
       - DATA_PATH=/data
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # Claude CLI용
+      # Jira API
+      - JIRA_URL=${JIRA_URL}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
     restart: unless-stopped

@@ -145,10 +145,78 @@ class StateManager:
             "status": "pending",
             "context": context,
             "created": datetime.now().isoformat(),
-            "reports": [],
         }
         self._save(data)
         return {"success": True, "project": project, "task": task_name}
+
+    def delete_task(self, project: str, task_name: str, cleanup_worktree: bool = True) -> dict:
+        """태스크를 삭제합니다. 워크트리도 함께 정리할 수 있습니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if task_name not in proj.get("tasks", {}):
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        task = proj["tasks"][task_name]
+        worktree_path = task.get("worktree")
+        machine = proj.get("machine", "local")
+
+        # 워크트리 정리
+        cleanup_result = None
+        if cleanup_worktree and worktree_path:
+            is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+            if is_local:
+                cleanup_result = self._cleanup_worktree_local(proj["repo_path"], worktree_path)
+            else:
+                resolved_host = self._resolve_host(machine)
+                if not isinstance(resolved_host, dict):
+                    cleanup_result = self._cleanup_worktree_remote(proj["repo_path"], worktree_path, resolved_host)
+
+        # 태스크 삭제
+        del proj["tasks"][task_name]
+        self._save(data)
+
+        return {
+            "success": True,
+            "project": project,
+            "deleted_task": task_name,
+            "worktree_cleanup": cleanup_result,
+        }
+
+    def _cleanup_worktree_local(self, repo_path: str, worktree_path: str) -> dict:
+        """로컬 워크트리 정리"""
+        try:
+            # git worktree remove
+            result = subprocess.run(
+                ["git", "-C", repo_path, "worktree", "remove", worktree_path, "--force"],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode != 0:
+                return {"error": result.stderr}
+            return {"success": True, "removed": worktree_path}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _cleanup_worktree_remote(self, repo_path: str, worktree_path: str, host: str) -> dict:
+        """원격 워크트리 정리"""
+        repo_path = repo_path.replace("~", "$HOME")
+        worktree_path = worktree_path.replace("~", "$HOME")
+
+        script = f'''
+cd {repo_path} || exit 1
+git worktree remove "{worktree_path}" --force
+'''
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", host, script]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode != 0:
+                return {"error": result.stderr or result.stdout}
+            return {"success": True, "removed": worktree_path, "host": host}
+        except Exception as e:
+            return {"error": str(e)}
 
     def update_task_status(self, project: str, task_name: str, status: str) -> dict:
         data = self._load()
@@ -162,22 +230,6 @@ class StateManager:
         proj["tasks"][task_name]["status"] = status
         self._save(data)
         return {"success": True, "project": project, "task": task_name, "status": status}
-
-    def add_report(self, project: str, task_name: str, content: str) -> dict:
-        data = self._load()
-        if project not in data["projects"]:
-            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
-
-        proj = data["projects"][project]
-        if task_name not in proj.get("tasks", {}):
-            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
-
-        proj["tasks"][task_name]["reports"].append({
-            "date": datetime.now().isoformat(),
-            "content": content,
-        })
-        self._save(data)
-        return {"success": True, "project": project, "task": task_name}
 
     def get_status(self, project: str | None = None) -> dict:
         data = self._load()
@@ -403,12 +455,14 @@ class StateManager:
         repo_path = proj["repo_path"]
         machine = proj.get("machine", "local")
         branch = task.get("branch", task_name)
-        sanitized = self._sanitize_branch_name(branch)
+        # 워크트리 폴더명: task_name 사용 (사용자가 지정한 그대로)
+        # 브랜치명: branch 필드 사용 (feature/PROJ-123/xxx 형태 가능)
+        folder_name = self._sanitize_branch_name(task_name)  # task_name 기반 폴더명
         # 짧은 해시 생성 (타임스탬프 기반, 7자)
         short_hash = hashlib.sha1(str(time.time()).encode()).hexdigest()[:7]
-        # 워크트리 폴더 구조: {repo}-worktrees/{branch}-{hash}
+        # 워크트리 폴더 구조: {repo}-worktrees/{task_name}-{hash}
         worktrees_dir = f"{repo_path}-worktrees"
-        worktree_path = f"{worktrees_dir}/{sanitized}-{short_hash}"
+        worktree_path = f"{worktrees_dir}/{folder_name}-{short_hash}"
 
         # 머신에 따라 로컬/원격 실행
         # "local" 또는 local_machine 설정값(기본: "nuc")이면 로컬 실행
@@ -712,6 +766,15 @@ echo "Rebase 완료: origin/{base_branch}"
             if result.returncode != 0:
                 return {"error": f"Claude 실행 실패: {result.stderr}"}
 
+            # Docker에서 실행시 세션 폴더 권한 수정 (호스트 유저가 접근 가능하도록)
+            session_dir = Path("/root/.claude/projects")
+            if session_dir.exists():
+                # 워크트리 경로로 세션 폴더명 추측 (Claude는 앞에 - 붙임)
+                sanitized = worktree_path.replace("/", "-")
+                session_path = session_dir / sanitized
+                if session_path.exists():
+                    subprocess.run(["chmod", "-R", "777", str(session_path)], capture_output=True)
+
             return {
                 "success": True,
                 "worktree": worktree_path,
@@ -731,7 +794,12 @@ echo "Rebase 완료: origin/{base_branch}"
         # 프롬프트에서 특수문자 이스케이프
         escaped_prompt = prompt.replace("'", "'\\''")
 
+        # nvm 환경 로드 (SSH non-interactive shell에서 PATH 문제 해결)
         script = f'''
+# nvm 로드 (있으면)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
 cd {worktree_path} || exit 1
 claude -p '{escaped_prompt}' --print
 '''
@@ -756,6 +824,306 @@ claude -p '{escaped_prompt}' --print
             return {"error": "SSH/Claude 세션 타임아웃"}
         except Exception as e:
             return {"error": str(e)}
+
+    def get_jira_issue(self, issue_key: str) -> dict:
+        """Jira 이슈 정보를 조회합니다."""
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        if not settings.jira_url or not settings.jira_email or not settings.jira_api_token:
+            return {"error": "Jira API 설정이 없습니다. JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN을 설정해주세요."}
+
+        url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
+        auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
+        headers = {"Accept": "application/json"}
+
+        try:
+            response = requests.get(url, headers=headers, auth=auth, timeout=30)
+            if response.status_code == 404:
+                return {"error": f"이슈 '{issue_key}'를 찾을 수 없습니다."}
+            if response.status_code != 200:
+                return {"error": f"Jira API 오류: {response.status_code} - {response.text}"}
+
+            data = response.json()
+            fields = data.get("fields", {})
+
+            # 필요한 정보만 추출
+            return {
+                "key": data.get("key"),
+                "summary": fields.get("summary"),
+                "description": self._extract_jira_description(fields.get("description")),
+                "status": fields.get("status", {}).get("name"),
+                "assignee": fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
+                "reporter": fields.get("reporter", {}).get("displayName") if fields.get("reporter") else None,
+                "priority": fields.get("priority", {}).get("name") if fields.get("priority") else None,
+                "issue_type": fields.get("issuetype", {}).get("name") if fields.get("issuetype") else None,
+                "project": fields.get("project", {}).get("name") if fields.get("project") else None,
+                "created": fields.get("created"),
+                "updated": fields.get("updated"),
+                "url": f"{settings.jira_url}/browse/{issue_key}",
+            }
+        except requests.exceptions.Timeout:
+            return {"error": "Jira API 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _extract_jira_description(self, description: dict | None) -> str | None:
+        """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
+        if not description:
+            return None
+        if isinstance(description, str):
+            return description
+
+        # ADF 형식 파싱
+        def extract_text(node: dict) -> str:
+            if node.get("type") == "text":
+                return node.get("text", "")
+            if "content" in node:
+                return "".join(extract_text(child) for child in node["content"])
+            return ""
+
+        try:
+            return extract_text(description).strip()
+        except Exception:
+            return str(description)
+
+    def sync_task_status(self, project: str, task_name: str | None = None) -> dict:
+        """GitHub PR 상태를 확인하여 태스크 상태를 동기화합니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if proj.get("deleted"):
+            return {"error": f"프로젝트 '{project}'은(는) 삭제된 상태입니다."}
+
+        tasks = proj.get("tasks", {})
+        if not tasks:
+            return {"error": "동기화할 태스크가 없습니다."}
+
+        # 특정 태스크만 또는 전체
+        target_tasks = {task_name: tasks[task_name]} if task_name else tasks
+        if task_name and task_name not in tasks:
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        repo_path = proj["repo_path"]
+        machine = proj.get("machine", "local")
+        results = []
+
+        for t_name, task in target_tasks.items():
+            branch = task.get("branch", t_name)
+            old_status = task.get("status", "pending")
+
+            # PR 상태 조회
+            pr_info = self._get_pr_status(repo_path, branch, machine)
+
+            if pr_info.get("error"):
+                results.append({
+                    "task": t_name,
+                    "status": old_status,
+                    "pr": None,
+                    "note": pr_info["error"]
+                })
+                continue
+
+            # PR 상태에 따라 태스크 상태 결정
+            new_status = old_status
+            if pr_info.get("state") == "MERGED":
+                new_status = "completed"
+            elif pr_info.get("state") == "OPEN":
+                new_status = "in_review"
+            elif pr_info.get("state") == "CLOSED":
+                # 머지 안 하고 닫힌 경우는 in_progress로 되돌림
+                new_status = "in_progress"
+
+            # 상태 업데이트
+            if new_status != old_status:
+                task["status"] = new_status
+                task["pr_url"] = pr_info.get("url")
+                task["pr_number"] = pr_info.get("number")
+
+            results.append({
+                "task": t_name,
+                "branch": branch,
+                "old_status": old_status,
+                "new_status": new_status,
+                "changed": new_status != old_status,
+                "pr": pr_info if pr_info.get("number") else None
+            })
+
+        self._save(data)
+
+        changed_count = sum(1 for r in results if r.get("changed"))
+        return {
+            "success": True,
+            "project": project,
+            "synced": len(results),
+            "changed": changed_count,
+            "results": results
+        }
+
+    def _get_pr_status(self, repo_path: str, branch: str, machine: str) -> dict:
+        """gh CLI로 PR 상태 조회"""
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+
+        # gh pr list로 해당 브랜치의 PR 조회
+        gh_cmd = f'gh pr list --head "{branch}" --state all --json number,title,state,url --limit 1'
+
+        if is_local:
+            try:
+                result = subprocess.run(
+                    gh_cmd,
+                    shell=True,
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode != 0:
+                    return {"error": f"gh 명령 실패: {result.stderr}"}
+                return self._parse_pr_result(result.stdout)
+            except Exception as e:
+                return {"error": str(e)}
+        else:
+            # 원격 실행
+            resolved_host = self._resolve_host(machine)
+            if isinstance(resolved_host, dict):
+                return resolved_host
+
+            repo_path = repo_path.replace("~", "$HOME")
+            script = f'''
+# homebrew PATH 추가 (macOS)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+cd {repo_path} || exit 1
+{gh_cmd}
+'''
+            cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", resolved_host, script]
+
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    return {"error": f"원격 gh 명령 실패: {result.stderr or result.stdout}"}
+                return self._parse_pr_result(result.stdout)
+            except Exception as e:
+                return {"error": str(e)}
+
+    def _parse_pr_result(self, output: str) -> dict:
+        """gh CLI 출력을 파싱"""
+        import json as json_module
+        try:
+            prs = json_module.loads(output)
+            if not prs:
+                return {"error": "PR 없음"}
+            pr = prs[0]
+            return {
+                "number": pr.get("number"),
+                "title": pr.get("title"),
+                "state": pr.get("state"),  # OPEN, CLOSED, MERGED
+                "url": pr.get("url")
+            }
+        except Exception as e:
+            return {"error": f"파싱 오류: {e}"}
+
+    def list_branches(self, project: str, pattern: str | None = None, remote_only: bool = False) -> dict:
+        """프로젝트의 Git 브랜치 목록을 조회합니다."""
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if proj.get("deleted"):
+            return {"error": f"프로젝트 '{project}'은(는) 삭제된 상태입니다."}
+
+        repo_path = proj["repo_path"]
+        machine = proj.get("machine", "local")
+
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+
+        # git branch 명령어 구성
+        if remote_only:
+            git_cmd = "git branch -r"
+        else:
+            git_cmd = "git branch -a"
+
+        if is_local:
+            try:
+                result = subprocess.run(
+                    git_cmd,
+                    shell=True,
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode != 0:
+                    return {"error": f"git 명령 실패: {result.stderr}"}
+                return self._parse_branches(result.stdout, pattern, project)
+            except Exception as e:
+                return {"error": str(e)}
+        else:
+            # 원격 실행
+            resolved_host = self._resolve_host(machine)
+            if isinstance(resolved_host, dict):
+                return resolved_host
+
+            repo_path = repo_path.replace("~", "$HOME")
+            script = f'''
+# homebrew PATH 추가 (macOS)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+cd {repo_path} || exit 1
+git fetch --prune 2>/dev/null
+{git_cmd}
+'''
+            cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", resolved_host, script]
+
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode != 0:
+                    return {"error": f"원격 git 명령 실패: {result.stderr or result.stdout}"}
+                return self._parse_branches(result.stdout, pattern, project)
+            except Exception as e:
+                return {"error": str(e)}
+
+    def _parse_branches(self, output: str, pattern: str | None, project: str) -> dict:
+        """git branch 출력을 파싱"""
+        branches = []
+        current_branch = None
+
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            # 현재 브랜치 표시 (*) 처리
+            is_current = line.startswith("*")
+            if is_current:
+                line = line[1:].strip()
+                current_branch = line
+
+            # remotes/origin/HEAD -> origin/main 같은 건 스킵
+            if " -> " in line:
+                continue
+
+            # remotes/origin/ 접두사 정리
+            if line.startswith("remotes/"):
+                line = line[8:]  # "remotes/" 제거
+
+            # 패턴 필터링
+            if pattern and pattern.lower() not in line.lower():
+                continue
+
+            branches.append(line)
+
+        # 중복 제거 및 정렬
+        branches = sorted(set(branches))
+
+        return {
+            "project": project,
+            "pattern": pattern,
+            "current_branch": current_branch,
+            "branches": branches,
+            "count": len(branches)
+        }
 
 
 # 싱글톤 인스턴스

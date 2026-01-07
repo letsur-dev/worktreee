@@ -138,7 +138,11 @@ TOOLS = [
                     },
                     "task_name": {
                         "type": "string",
-                        "description": "태스크 이름 (branch 이름으로도 사용)",
+                        "description": "태스크 이름 (워크트리 폴더명으로 사용, 예: PRDEL-107-invite-feature)",
+                    },
+                    "branch": {
+                        "type": "string",
+                        "description": "Git 브랜치명 (예: feature/PRDEL-107/invite-feature). 생략하면 task_name 사용",
                     },
                     "context": {
                         "type": "string",
@@ -146,6 +150,32 @@ TOOLS = [
                     },
                 },
                 "required": ["project", "task_name", "context"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_task",
+            "description": "태스크를 삭제합니다. 연결된 워크트리도 함께 정리됩니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "삭제할 태스크 이름",
+                    },
+                    "cleanup_worktree": {
+                        "type": "boolean",
+                        "description": "워크트리도 함께 삭제할지 여부 (기본: true)",
+                        "default": True,
+                    },
+                },
+                "required": ["project", "task_name"],
             },
         },
     },
@@ -167,36 +197,11 @@ TOOLS = [
                     },
                     "status": {
                         "type": "string",
-                        "description": "새 상태 (pending, in_progress, completed)",
-                        "enum": ["pending", "in_progress", "completed"],
+                        "description": "새 상태 (pending, in_progress, in_review, completed)",
+                        "enum": ["pending", "in_progress", "in_review", "completed"],
                     },
                 },
                 "required": ["project", "task_name", "status"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_report",
-            "description": "태스크에 진행 보고를 추가합니다.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "project": {
-                        "type": "string",
-                        "description": "프로젝트 이름",
-                    },
-                    "task_name": {
-                        "type": "string",
-                        "description": "태스크 이름",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "보고 내용",
-                    },
-                },
-                "required": ["project", "task_name", "content"],
             },
         },
     },
@@ -308,6 +313,73 @@ TOOLS = [
             },
         },
     },
+    # Jira 연동
+    {
+        "type": "function",
+        "function": {
+            "name": "get_jira_issue",
+            "description": "Jira 이슈 정보를 조회합니다. 이슈 키(예: PRDEL-107)를 입력하면 제목, 설명, 상태, 담당자 등을 반환합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "issue_key": {
+                        "type": "string",
+                        "description": "Jira 이슈 키 (예: PRDEL-107, PROJ-123)",
+                    },
+                },
+                "required": ["issue_key"],
+            },
+        },
+    },
+    # PR 상태 동기화
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_task_status",
+            "description": "GitHub PR 상태를 확인하여 태스크 상태를 자동 동기화합니다. PR이 OPEN이면 in_review, MERGED면 completed로 변경합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "태스크 이름 (생략하면 프로젝트의 모든 태스크 동기화)",
+                    },
+                },
+                "required": ["project"],
+            },
+        },
+    },
+    # 브랜치 목록 조회
+    {
+        "type": "function",
+        "function": {
+            "name": "list_branches",
+            "description": "프로젝트의 Git 브랜치 목록을 조회합니다. 로컬 및 리모트 브랜치를 모두 표시합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "브랜치 이름 필터 패턴 (예: feature/, fix/)",
+                    },
+                    "remote_only": {
+                        "type": "boolean",
+                        "description": "리모트 브랜치만 조회 (기본: false)",
+                        "default": False,
+                    },
+                },
+                "required": ["project"],
+            },
+        },
+    },
 ]
 
 
@@ -343,6 +415,7 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 task_name=arguments["task_name"],
                 context=arguments["context"],
+                branch=arguments.get("branch"),  # 브랜치명 (없으면 task_name 사용)
             )
             # Phase 2: 워크트리 자동 생성
             if result.get("success"):
@@ -354,6 +427,17 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 if worktree_result.get("success"):
                     result["worktree"] = worktree_result["worktree"]
                     result["branch"] = worktree_result["branch"]
+
+                    # Phase 3: Claude 세션 자동 시작
+                    claude_result = state_manager.start_claude_session(
+                        project=arguments["project"],
+                        task_name=arguments["task_name"],
+                    )
+                    if claude_result.get("success"):
+                        result["claude_session"] = "started"
+                        result["continue_command"] = "claude --continue"
+                    else:
+                        result["claude_session_error"] = claude_result.get("error")
                 else:
                     result["worktree_error"] = worktree_result.get("error")
         elif name == "create_worktree":
@@ -372,17 +456,17 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 task_name=arguments["task_name"],
             )
+        elif name == "delete_task":
+            result = state_manager.delete_task(
+                project=arguments["project"],
+                task_name=arguments["task_name"],
+                cleanup_worktree=arguments.get("cleanup_worktree", True),
+            )
         elif name == "update_task_status":
             result = state_manager.update_task_status(
                 project=arguments["project"],
                 task_name=arguments["task_name"],
                 status=arguments["status"],
-            )
-        elif name == "add_report":
-            result = state_manager.add_report(
-                project=arguments["project"],
-                task_name=arguments["task_name"],
-                content=arguments["content"],
             )
         # 통합 도구 (로컬/원격 공통, Documents 기준)
         elif name == "list_directory":
@@ -394,6 +478,21 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             result = state_manager.scan_projects(
                 path=arguments.get("path", ""),
                 host=arguments.get("host"),
+            )
+        elif name == "get_jira_issue":
+            result = state_manager.get_jira_issue(
+                issue_key=arguments["issue_key"],
+            )
+        elif name == "sync_task_status":
+            result = state_manager.sync_task_status(
+                project=arguments["project"],
+                task_name=arguments.get("task_name"),
+            )
+        elif name == "list_branches":
+            result = state_manager.list_branches(
+                project=arguments["project"],
+                pattern=arguments.get("pattern"),
+                remote_only=arguments.get("remote_only", False),
             )
         else:
             result = {"error": f"알 수 없는 도구: {name}"}
