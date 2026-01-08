@@ -4,6 +4,7 @@ from typing import Generator
 
 from .llm import llm_client
 from .tools import TOOLS, execute_tool
+from state.manager import state_manager
 
 
 # 도구 호출이 필요한 액션 키워드들
@@ -32,7 +33,7 @@ DO NOT respond with text only. CALL A TOOL FIRST.
 The user's request requires verification with actual data - do not make up information."""
 
 
-SYSTEM_PROMPT = """You are a Project Manager (PM) Agent that helps manage multiple projects across different machines.
+BASE_SYSTEM_PROMPT = """You are a Project Manager (PM) Agent that helps manage multiple projects across different machines.
 
 Your capabilities:
 - Register and manage projects (add_project, list_projects, delete_project, update_project, restore_project)
@@ -79,6 +80,26 @@ Be concise and helpful.
 After using a tool, summarize the result naturally in conversation."""
 
 
+def build_system_prompt() -> str:
+    """프로젝트 목록을 포함한 동적 시스템 프롬프트 생성"""
+    projects = state_manager.list_projects()
+
+    if not projects:
+        project_info = "현재 등록된 프로젝트가 없습니다."
+    else:
+        lines = []
+        for p in projects:
+            lines.append(f"- {p['name']}: {p['repo_path']} (machine: {p['machine']}, tasks: {p['task_count']})")
+        project_info = "\n".join(lines)
+
+    return f"""{BASE_SYSTEM_PROMPT}
+
+=== CURRENT REGISTERED PROJECTS ===
+{project_info}
+
+IMPORTANT: Use ONLY the project names and paths listed above. Do NOT make up or guess paths."""
+
+
 class PMAgent:
     def __init__(self):
         self.max_iterations = 10  # 무한 루프 방지
@@ -98,8 +119,9 @@ class PMAgent:
 
     def run(self, messages: list[dict]) -> str:
         """메시지를 받아 처리하고 최종 응답을 반환"""
-        # 시스템 프롬프트 추가
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        # 동적 시스템 프롬프트 (프로젝트 목록 포함)
+        system_prompt = build_system_prompt()
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
         requires_tool = self._requires_tool_call(messages)
         tool_was_called = False
         force_retry_count = 0
@@ -157,7 +179,9 @@ class PMAgent:
 
     def run_stream(self, messages: list[dict]) -> Generator[str, None, None]:
         """스트리밍 응답을 위한 제너레이터 - 진행 상황 실시간 표시"""
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        # 동적 시스템 프롬프트 (프로젝트 목록 포함)
+        system_prompt = build_system_prompt()
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
         requires_tool = self._requires_tool_call(messages)
         tool_was_called = False
         force_retry_count = 0
