@@ -1,8 +1,35 @@
 import json
+import re
 from typing import Generator
 
 from .llm import llm_client
 from .tools import TOOLS, execute_tool
+
+
+# 도구 호출이 필요한 액션 키워드들
+ACTION_KEYWORDS = [
+    # 조회/목록
+    "목록", "리스트", "조회", "보여", "알려", "현황", "상태", "확인",
+    # 생성/추가
+    "만들", "생성", "추가", "등록",
+    # 삭제/제거
+    "삭제", "제거", "지워",
+    # 수정/업데이트
+    "수정", "업데이트", "변경", "바꿔",
+    # 동기화
+    "동기화", "싱크", "rebase",
+    # 기타 액션
+    "시작", "스캔", "복구", "브랜치",
+    # 영어 키워드
+    "list", "show", "create", "delete", "update", "sync", "status",
+]
+
+# 도구 호출 강제 프롬프트
+FORCE_TOOL_PROMPT = """[SYSTEM OVERRIDE]
+Your previous response was REJECTED because you did not call any tools.
+This is a VIOLATION of the rules. You MUST call the appropriate tool NOW.
+DO NOT respond with text only. CALL A TOOL FIRST.
+The user's request requires verification with actual data - do not make up information."""
 
 
 SYSTEM_PROMPT = """You are a Project Manager (PM) Agent that helps manage multiple projects across different machines.
@@ -16,10 +43,18 @@ Your capabilities:
 - Browse directories and scan for git projects (list_directory, scan_projects)
 - Fetch Jira issue details (get_jira_issue)
 
-IMPORTANT RULES:
-1. ALWAYS use tools to get current data. NEVER rely on your memory or previous conversation context.
-2. When asked about projects, tasks, or status → ALWAYS call the appropriate tool first (list_projects, get_status, etc.)
-3. Do not assume or guess what projects/tasks exist. Always verify with tools.
+CRITICAL RULES (MUST FOLLOW):
+1. NEVER respond without using tools first. You MUST call the appropriate tool before responding.
+2. NEVER make up or hallucinate data (paths, usernames, project names, etc.). Only use data from tool results.
+3. NEVER assume or guess what projects/tasks exist. Always verify with tools.
+4. If a tool fails, report the actual error - do not pretend it succeeded.
+5. For ANY action (create, delete, update, list), you MUST use the corresponding tool.
+
+FORBIDDEN BEHAVIORS:
+- Making up file paths or usernames
+- Claiming a task was created without actually calling create_task
+- Providing status information without calling get_status
+- Responding with "완료" or "성공" without tool confirmation
 
 When a user asks you to:
 - "프로젝트 목록/정리" → FIRST call list_projects, then respond based on the result
@@ -47,11 +82,27 @@ After using a tool, summarize the result naturally in conversation."""
 class PMAgent:
     def __init__(self):
         self.max_iterations = 10  # 무한 루프 방지
+        self.max_force_retries = 2  # 도구 호출 강제 재시도 횟수
+
+    def _requires_tool_call(self, messages: list[dict]) -> bool:
+        """사용자 메시지가 도구 호출이 필요한 액션인지 확인"""
+        # 마지막 사용자 메시지 확인
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "").lower()
+                for keyword in ACTION_KEYWORDS:
+                    if keyword in content:
+                        return True
+                break
+        return False
 
     def run(self, messages: list[dict]) -> str:
         """메시지를 받아 처리하고 최종 응답을 반환"""
         # 시스템 프롬프트 추가
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        requires_tool = self._requires_tool_call(messages)
+        tool_was_called = False
+        force_retry_count = 0
 
         for _ in range(self.max_iterations):
             response = llm_client.chat(full_messages, tools=TOOLS)
@@ -60,9 +111,17 @@ class PMAgent:
 
             # 도구 호출이 없으면 최종 응답
             if not message.tool_calls:
+                # 할루시네이션 방지: 도구 호출이 필요한데 한번도 호출 안했으면 재시도
+                if requires_tool and not tool_was_called and force_retry_count < self.max_force_retries:
+                    force_retry_count += 1
+                    # 강제 재시도 프롬프트 추가
+                    full_messages.append({"role": "assistant", "content": message.content or ""})
+                    full_messages.append({"role": "user", "content": FORCE_TOOL_PROMPT})
+                    continue
                 return message.content or ""
 
-            # 도구 호출 처리
+            # 도구 호출 처리 - 할루시네이션 방지 플래그 설정
+            tool_was_called = True
             assistant_msg = {
                 "role": "assistant",
                 "tool_calls": [
@@ -99,6 +158,9 @@ class PMAgent:
     def run_stream(self, messages: list[dict]) -> Generator[str, None, None]:
         """스트리밍 응답을 위한 제너레이터 - 진행 상황 실시간 표시"""
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        requires_tool = self._requires_tool_call(messages)
+        tool_was_called = False
+        force_retry_count = 0
 
         yield "🤔 요청 분석 중...\n\n"
 
@@ -109,13 +171,21 @@ class PMAgent:
 
             # 도구 호출이 없으면 최종 응답
             if not message.tool_calls:
+                # 할루시네이션 방지: 도구 호출이 필요한데 한번도 호출 안했으면 재시도
+                if requires_tool and not tool_was_called and force_retry_count < self.max_force_retries:
+                    force_retry_count += 1
+                    yield "⚠️ 도구 호출 없이 응답 시도됨, 재시도 중...\n\n"
+                    full_messages.append({"role": "assistant", "content": message.content or ""})
+                    full_messages.append({"role": "user", "content": FORCE_TOOL_PROMPT})
+                    continue
                 yield "---\n\n"
                 # 최종 응답을 청크로 나눠서 전송 (더 자연스러운 스트리밍)
                 content = message.content or ""
                 yield content
                 return
 
-            # 도구 호출 처리
+            # 도구 호출 처리 - 할루시네이션 방지 플래그 설정
+            tool_was_called = True
             assistant_msg = {
                 "role": "assistant",
                 "tool_calls": [
