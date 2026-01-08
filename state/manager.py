@@ -794,11 +794,15 @@ echo "Rebase 완료: origin/{base_branch}"
         # 프롬프트에서 특수문자 이스케이프
         escaped_prompt = prompt.replace("'", "'\\''")
 
-        # nvm 환경 로드 (SSH non-interactive shell에서 PATH 문제 해결)
+        # SSH non-interactive shell에서 PATH 문제 해결
+        # .zshrc 또는 .bashrc를 source해서 nvm/PATH 설정 로드
         script = f'''
-# nvm 로드 (있으면)
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+# 쉘 환경 로드 (zsh 또는 bash)
+if [ -f "$HOME/.zshrc" ]; then
+    source "$HOME/.zshrc" 2>/dev/null
+elif [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc" 2>/dev/null
+fi
 
 cd {worktree_path} || exit 1
 claude -p '{escaped_prompt}' --print
