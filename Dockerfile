@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y openssh-client git curl && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
+# amos 사용자 생성 (uid 1000) - SSH 등에서 필요
+RUN useradd -u 1000 -m amos
+
 # Claude CLI 설치
 RUN npm install -g @anthropic-ai/claude-code
 
