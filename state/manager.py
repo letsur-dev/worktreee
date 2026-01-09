@@ -245,21 +245,35 @@ git worktree remove "{worktree_path}" --force
             "projects": [],
         }
         for name, info in data["projects"].items():
+            if info.get("deleted_at"):
+                continue  # 삭제된 프로젝트 제외
+
             tasks = info.get("tasks", {})
             task_summary = {
                 "pending": 0,
                 "in_progress": 0,
+                "in_review": 0,
                 "completed": 0,
             }
-            for task in tasks.values():
+            tasks_with_pr = []
+            for task_name, task in tasks.items():
                 status = task.get("status", "pending")
                 if status in task_summary:
                     task_summary[status] += 1
+
+                # PR 정보가 있는 태스크 수집
+                if task.get("pr"):
+                    tasks_with_pr.append({
+                        "name": task_name,
+                        "pr": task["pr"],
+                        "status": status,
+                    })
 
             summary["projects"].append({
                 "name": name,
                 "machine": info["machine"],
                 "tasks": task_summary,
+                "tasks_with_pr": tasks_with_pr,
             })
         return summary
 
@@ -943,8 +957,15 @@ claude -p '{escaped_prompt}' --print
             # 상태 업데이트
             if new_status != old_status:
                 task["status"] = new_status
-                task["pr_url"] = pr_info.get("url")
-                task["pr_number"] = pr_info.get("number")
+
+            # PR 정보 저장 (PR이 있으면 항상 저장)
+            if pr_info.get("number"):
+                task["pr"] = {
+                    "number": pr_info.get("number"),
+                    "url": pr_info.get("url"),
+                    "state": pr_info.get("state"),  # OPEN / MERGED / CLOSED
+                    "title": pr_info.get("title"),
+                }
 
             results.append({
                 "task": t_name,
@@ -952,7 +973,7 @@ claude -p '{escaped_prompt}' --print
                 "old_status": old_status,
                 "new_status": new_status,
                 "changed": new_status != old_status,
-                "pr": pr_info if pr_info.get("number") else None
+                "pr": task.get("pr")
             })
 
         self._save(data)
