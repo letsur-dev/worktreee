@@ -18,11 +18,11 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # 의존성 설치
-COPY pyproject.toml .
+COPY --chown=1000:1000 pyproject.toml .
 RUN uv pip install --system --no-cache .
 
-# 소스 복사
-COPY . .
+# 소스 복사 (amos 유저 권한으로)
+COPY --chown=1000:1000 . .
 
 EXPOSE 8000
 
