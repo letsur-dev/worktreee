@@ -2,14 +2,17 @@ services:
   pm-agent:
     build: .
     container_name: pm-agent
+    user: "1000:1000"  # amos uid:gid - root 권한 문제 방지
     ports:
       - "9001:8000"
     volumes:
       - ./data:/data
       - /home/amos/Documents:/home/amos/Documents
-      - /home/amos/.ssh:/root/.ssh:ro
-      - /home/amos/.claude:/root/.claude  # Claude CLI 세션 공유
+      - /home/amos/.ssh:/home/amos/.ssh:ro
+      - /home/amos/.claude:/home/amos/.claude
+      - /home/amos/.config/gh:/home/amos/.config/gh:ro  # GitHub CLI 인증
     environment:
+      - HOME=/home/amos
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
