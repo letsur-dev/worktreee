@@ -128,7 +128,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_task",
-            "description": "프로젝트에 새 태스크를 생성합니다. Git worktree와 branch를 자동으로 생성합니다.",
+            "description": "프로젝트에 새 태스크를 생성합니다. Git worktree와 branch를 자동으로 생성합니다. Jira 티켓이나 Notion 문서를 연결할 수 있습니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -148,8 +148,38 @@ TOOLS = [
                         "type": "string",
                         "description": "태스크 컨텍스트 (목표, 제약사항 등)",
                     },
+                    "jira_key": {
+                        "type": "string",
+                        "description": "연결할 Jira 이슈 키 (예: PRDEL-107)",
+                    },
+                    "notion_urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "연결할 Notion 문서 URL 목록",
+                    },
                 },
                 "required": ["project", "task_name", "context"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_task_context",
+            "description": "태스크의 전체 컨텍스트를 가져옵니다. 연결된 Jira 이슈와 Notion 문서 내용을 함께 조회합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "태스크 이름",
+                    },
+                },
+                "required": ["project", "task_name"],
             },
         },
     },
@@ -330,6 +360,10 @@ TOOLS = [
                         "type": "boolean",
                         "description": "true면 하위의 하위, 링크된 이슈까지 재귀적으로 전체 트리 조회 (기본값: false)",
                     },
+                    "fetch_notion": {
+                        "type": "boolean",
+                        "description": "true면 Notion 링크 발견시 자동으로 내용 조회 (기본값: true)",
+                    },
                 },
                 "required": ["issue_key"],
             },
@@ -347,6 +381,28 @@ TOOLS = [
                     "issue_key": {
                         "type": "string",
                         "description": "Jira 이슈 키 (예: PRDEL-85)",
+                    },
+                },
+                "required": ["issue_key"],
+            },
+        },
+    },
+    # Jira 그래프 시각화 (HTML/D3.js)
+    {
+        "type": "function",
+        "function": {
+            "name": "get_jira_graph_html",
+            "description": "Jira 이슈 관계를 D3.js 인터랙티브 그래프로 시각화합니다. 드래그, 줌, 클릭(Jira 이동) 가능한 HTML 파일을 생성합니다. Reflect App 스타일의 네트워크 그래프입니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "issue_key": {
+                        "type": "string",
+                        "description": "Jira 이슈 키 (예: PRDEL-85)",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "HTML 파일 저장 경로 (옵션, 미지정시 data/jira_graphs/에 저장)",
                     },
                 },
                 "required": ["issue_key"],
@@ -428,6 +484,45 @@ TOOLS = [
             },
         },
     },
+    # Notion 연동
+    {
+        "type": "function",
+        "function": {
+            "name": "get_notion_page",
+            "description": "Notion 페이지 내용을 가져옵니다. Jira 이슈에 링크된 Notion 페이지를 읽을 때 사용합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_url_or_id": {
+                        "type": "string",
+                        "description": "Notion 페이지 URL 또는 ID (예: https://notion.so/workspace/Page-Title-abc123)",
+                    },
+                },
+                "required": ["page_url_or_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notion",
+            "description": "Notion 워크스페이스에서 검색합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "검색어",
+                    },
+                    "page_url": {
+                        "type": "string",
+                        "description": "특정 페이지 내에서만 검색 (선택)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -464,6 +559,8 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 task_name=arguments["task_name"],
                 context=arguments["context"],
                 branch=arguments.get("branch"),  # 브랜치명 (없으면 task_name 사용)
+                jira_key=arguments.get("jira_key"),
+                notion_urls=arguments.get("notion_urls"),
             )
             # Phase 2: 워크트리 자동 생성
             if result.get("success"):
@@ -504,6 +601,11 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 task_name=arguments["task_name"],
             )
+        elif name == "get_task_context":
+            result = state_manager.get_task_context(
+                project=arguments["project"],
+                task_name=arguments["task_name"],
+            )
         elif name == "delete_task":
             result = state_manager.delete_task(
                 project=arguments["project"],
@@ -531,10 +633,16 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             result = state_manager.get_jira_issue(
                 issue_key=arguments["issue_key"],
                 recursive=arguments.get("recursive", False),
+                fetch_notion=arguments.get("fetch_notion", True),
             )
         elif name == "get_jira_graph":
             result = state_manager.get_jira_graph(
                 issue_key=arguments["issue_key"],
+            )
+        elif name == "get_jira_graph_html":
+            result = state_manager.get_jira_graph_html(
+                issue_key=arguments["issue_key"],
+                output_path=arguments.get("output_path"),
             )
         elif name == "analyze_jira_image":
             result = state_manager.analyze_jira_image(
@@ -552,6 +660,16 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 project=arguments["project"],
                 pattern=arguments.get("pattern"),
                 remote_only=arguments.get("remote_only", False),
+            )
+        # Notion 도구
+        elif name == "get_notion_page":
+            result = state_manager.get_notion_page(
+                page_url_or_id=arguments["page_url_or_id"],
+            )
+        elif name == "search_notion":
+            result = state_manager.search_notion(
+                query=arguments["query"],
+                page_url=arguments.get("page_url"),
             )
         else:
             result = {"error": f"알 수 없는 도구: {name}"}

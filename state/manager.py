@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import subprocess
 import time
@@ -6,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
 import yaml
 
 from config import settings
@@ -129,6 +131,8 @@ class StateManager:
         context: str,
         branch: str | None = None,
         worktree: str | None = None,
+        jira_key: str | None = None,
+        notion_urls: list[str] | None = None,
     ) -> dict:
         data = self._load()
         if project not in data["projects"]:
@@ -139,13 +143,23 @@ class StateManager:
             return {"error": f"태스크 '{task_name}'이(가) 이미 존재합니다."}
 
         branch = branch or task_name
-        proj.setdefault("tasks", {})[task_name] = {
+        task_data = {
             "branch": branch,
             "worktree": worktree,
             "status": "pending",
             "context": context,
             "created": datetime.now().isoformat(),
         }
+
+        # Jira 티켓 연결
+        if jira_key:
+            task_data["jira_key"] = jira_key
+
+        # Notion 문서 연결
+        if notion_urls:
+            task_data["notion_urls"] = notion_urls
+
+        proj.setdefault("tasks", {})[task_name] = task_data
         self._save(data)
         return {"success": True, "project": project, "task": task_name}
 
@@ -230,6 +244,50 @@ git worktree remove "{worktree_path}" --force
         proj["tasks"][task_name]["status"] = status
         self._save(data)
         return {"success": True, "project": project, "task": task_name, "status": status}
+
+    def get_task_context(self, project: str, task_name: str) -> dict:
+        """태스크의 전체 컨텍스트를 가져옵니다.
+        연결된 Jira 이슈와 Notion 문서 내용을 함께 조회합니다.
+        """
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if task_name not in proj.get("tasks", {}):
+            return {"error": f"태스크 '{task_name}'을(를) 찾을 수 없습니다."}
+
+        task = proj["tasks"][task_name]
+        result = {
+            "project": project,
+            "task_name": task_name,
+            "branch": task.get("branch"),
+            "worktree": task.get("worktree"),
+            "status": task.get("status"),
+            "context": task.get("context"),
+            "created": task.get("created"),
+        }
+
+        # Jira 이슈 조회
+        jira_key = task.get("jira_key")
+        if jira_key:
+            jira_result = self.get_jira_issue(jira_key, fetch_notion=True)
+            if "error" not in jira_result:
+                result["jira"] = jira_result
+
+        # Notion 문서 조회
+        notion_urls = task.get("notion_urls", [])
+        if notion_urls:
+            result["notion_pages"] = []
+            for url in notion_urls:
+                notion_result = self.get_notion_page(url)
+                if "error" not in notion_result:
+                    result["notion_pages"].append({
+                        "url": url,
+                        "content": notion_result.get("content", ""),
+                    })
+
+        return result
 
     def get_status(self, project: str | None = None) -> dict:
         data = self._load()
@@ -843,13 +901,25 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"error": str(e)}
 
-    def get_jira_issue(self, issue_key: str, include_children: bool = True, recursive: bool = False) -> dict:
+    def _extract_notion_urls(self, text: str | None) -> list[str]:
+        """텍스트에서 Notion URL 추출"""
+        import re
+        if not text:
+            return []
+        # notion.so 또는 notion.site URL 패턴
+        pattern = r'https?://(?:www\.)?notion\.(?:so|site)/[^\s\)\]\>\"\'<]+'
+        urls = re.findall(pattern, text)
+        # 중복 제거
+        return list(dict.fromkeys(urls))
+
+    def get_jira_issue(self, issue_key: str, include_children: bool = True, recursive: bool = False, fetch_notion: bool = True) -> dict:
         """Jira 이슈 정보를 조회합니다.
 
         Args:
             issue_key: Jira 이슈 키 (예: PRDEL-85)
             include_children: 직접 하위 이슈 포함 여부
             recursive: True면 하위의 하위, 링크된 이슈까지 재귀적으로 전체 트리 조회
+            fetch_notion: True면 Notion 링크 발견시 자동으로 내용 조회
         """
         import requests
         from requests.auth import HTTPBasicAuth
@@ -971,6 +1041,25 @@ claude -p '{escaped_prompt}' --print
                     "status": parent.get("fields", {}).get("status", {}).get("name"),
                     "issue_type": parent.get("fields", {}).get("issuetype", {}).get("name"),
                 }
+
+            # Notion 링크 자동 조회
+            if fetch_notion:
+                notion_urls = set()
+                # description에서 추출
+                notion_urls.update(self._extract_notion_urls(result.get("description")))
+                # 댓글에서 추출
+                for comment in result.get("comments", []):
+                    notion_urls.update(self._extract_notion_urls(comment.get("body")))
+
+                if notion_urls:
+                    result["notion_pages"] = []
+                    for url in list(notion_urls)[:5]:  # 최대 5개
+                        notion_result = self.get_notion_page(url)
+                        if "error" not in notion_result:
+                            result["notion_pages"].append({
+                                "url": url,
+                                "content": notion_result.get("content", "")[:2000],  # 내용 2000자 제한
+                            })
 
             return result
         except requests.exceptions.Timeout:
@@ -1174,6 +1263,411 @@ claude -p '{escaped_prompt}' --print
             "node_count": mermaid.count('["'),
         }
 
+    def _tree_to_graph_data(self, tree: dict) -> dict:
+        """이슈 트리를 D3 그래프용 nodes/links 데이터로 변환"""
+        nodes = []
+        links = []
+        visited = set()
+
+        def get_status_color(status: str | None) -> str:
+            """상태별 테두리 색상"""
+            if not status:
+                return "#9ca3af"  # gray
+            s = status.lower()
+            if "progress" in s:
+                return "#eab308"  # yellow
+            if "done" in s or "complete" in s or "merged" in s or "deployed" in s:
+                return "#22c55e"  # green
+            if "review" in s:
+                return "#3b82f6"  # blue
+            return "#9ca3af"  # gray
+
+        def get_type_info(issue_type: str | None) -> tuple[str, int]:
+            """이슈 타입별 배경색과 크기"""
+            if not issue_type:
+                return "#475569", 25  # default gray, medium
+            t = issue_type.lower()
+            if "epic" in t:
+                return "#7c3aed", 40  # purple, large
+            if "story" in t or "feature" in t:
+                return "#2563eb", 32  # blue, medium-large
+            if "bug" in t:
+                return "#dc2626", 28  # red, medium
+            if "task" in t:
+                return "#0891b2", 25  # cyan, medium
+            if "subtask" in t or "sub-task" in t:
+                return "#64748b", 20  # gray, small
+            return "#475569", 25  # default
+
+        def process_node(node: dict, parent_key: str | None = None, link_type: str | None = None, depth: int = 0):
+            if not node or node.get("_skipped") or node.get("_error"):
+                return
+
+            key = node.get("key")
+            if not key:
+                return
+
+            # 노드가 처음이면 추가
+            if key not in visited:
+                visited.add(key)
+                issue_type = node.get("issue_type", "")
+                bg_color, _ = get_type_info(issue_type)
+                # 계층별 크기: depth 0 = 45, depth 1 = 35, depth 2 = 28, depth 3+ = 22
+                size = max(22, 45 - (depth * 10))
+                nodes.append({
+                    "id": key,
+                    "label": node.get("summary", "")[:50],
+                    "status": node.get("status", ""),
+                    "type": issue_type,
+                    "bgColor": bg_color,
+                    "strokeColor": get_status_color(node.get("status")),
+                    "size": size,
+                    "depth": depth,
+                })
+
+            # 엣지 추가 (부모 → 자식)
+            if parent_key:
+                link_id = f"{parent_key}->{key}"
+                reverse_link_id = f"{key}->{parent_key}"
+                # 중복 방지
+                existing_links = {f"{l['source']}->{l['target']}" for l in links}
+                if link_id not in existing_links and reverse_link_id not in existing_links:
+                    links.append({
+                        "source": parent_key,
+                        "target": key,
+                        "type": link_type or "child",
+                        "dashed": link_type is not None,
+                    })
+
+            # 하위 이슈 처리 (depth 증가)
+            for child in node.get("children", []):
+                process_node(child, key, None, depth + 1)
+            for child in node.get("subtasks", []):
+                process_node(child, key, None, depth + 1)
+
+            # 링크된 이슈 처리 (같은 depth - 관계이므로)
+            for linked in node.get("linked_issues", []):
+                lt = linked.get("_link_type", "related")
+                if "blocks" in lt.lower():
+                    lt = "blocks"
+                elif "relates" in lt.lower():
+                    lt = "relates"
+                elif "duplicate" in lt.lower():
+                    lt = "duplicate"
+                process_node(linked, key, lt, depth)
+
+        process_node(tree)
+        return {"nodes": nodes, "links": links}
+
+    def get_jira_graph_html(self, issue_key: str, output_path: str | None = None) -> dict:
+        """Jira 이슈 그래프를 D3.js 인터랙티브 HTML로 생성"""
+        import requests
+        from requests.auth import HTTPBasicAuth
+        import json as json_module
+
+        if not settings.jira_url or not settings.jira_email or not settings.jira_api_token:
+            return {"error": "Jira API 설정이 없습니다."}
+
+        auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
+        headers = {"Accept": "application/json"}
+
+        tree = self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5)
+        if "error" in tree or "_error" in tree:
+            return tree
+
+        graph_data = self._tree_to_graph_data(tree)
+        jira_base_url = settings.jira_url
+
+        html_template = f'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Issue Graph - {issue_key}</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            overflow: hidden;
+        }}
+        #graph {{ width: 100vw; height: 100vh; }}
+        .node {{ cursor: pointer; }}
+        .node text {{ font-size: 10px; fill: #fff; font-weight: 500; }}
+        .link {{ fill: none; stroke-opacity: 0.7; }}
+        .link.child {{ stroke: #64748b; stroke-width: 2px; }}
+        .link.dashed {{ stroke-dasharray: 5, 5; stroke: #a855f7; stroke-width: 2px; }}
+        .link-label {{ font-size: 9px; fill: #c084fc; font-weight: 500; }}
+        .tooltip {{
+            position: absolute;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 13px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 300px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 1000;
+        }}
+        .tooltip .key {{ color: #60a5fa; font-weight: bold; font-size: 14px; }}
+        .tooltip .summary {{ margin-top: 4px; color: #e2e8f0; }}
+        .tooltip .meta {{ margin-top: 8px; color: #94a3b8; font-size: 11px; }}
+        .legend {{
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 12px;
+        }}
+        .legend h4 {{ margin: 0 0 8px 0; color: #94a3b8; font-size: 10px; text-transform: uppercase; }}
+        .legend-item {{ display: flex; align-items: center; margin: 4px 0; }}
+        .legend-color {{ width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; border: 2px solid transparent; }}
+        .legend-line {{ width: 24px; margin-right: 8px; }}
+        .controls {{
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+        }}
+        .controls button {{
+            background: #334155;
+            border: none;
+            color: #e2e8f0;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 2px;
+        }}
+        .controls button:hover {{ background: #475569; }}
+    </style>
+</head>
+<body>
+    <div id="graph"></div>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="legend">
+        <h4>Issue Type</h4>
+        <div class="legend-item"><div class="legend-color" style="background:#7c3aed; width:20px; height:20px;"></div>Epic</div>
+        <div class="legend-item"><div class="legend-color" style="background:#2563eb; width:16px; height:16px;"></div>Story</div>
+        <div class="legend-item"><div class="legend-color" style="background:#0891b2; width:14px; height:14px;"></div>Task</div>
+        <div class="legend-item"><div class="legend-color" style="background:#dc2626; width:14px; height:14px;"></div>Bug</div>
+        <div class="legend-item"><div class="legend-color" style="background:#64748b; width:12px; height:12px;"></div>Subtask</div>
+        <h4 style="margin-top: 12px;">Status (Border)</h4>
+        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#22c55e;"></div>Done</div>
+        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#3b82f6;"></div>In Review</div>
+        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#eab308;"></div>In Progress</div>
+        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#9ca3af;"></div>To Do</div>
+        <h4 style="margin-top: 12px;">Links</h4>
+        <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/></svg>Parent → Child</div>
+        <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#a855f7" stroke-width="2" stroke-dasharray="3,3"/></svg>Issue Link</div>
+    </div>
+    <div class="controls">
+        <button onclick="zoomIn()">+ Zoom In</button>
+        <button onclick="zoomOut()">- Zoom Out</button>
+        <button onclick="resetZoom()">Reset</button>
+    </div>
+    <script>
+        const data = {json_module.dumps(graph_data)};
+        const jiraUrl = "{jira_base_url}";
+
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        const svg = d3.select("#graph")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Arrow marker 정의
+        svg.append("defs").selectAll("marker")
+            .data(["arrow", "arrow-link"])
+            .join("marker")
+            .attr("id", d => d)
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", d => d === "arrow" ? 20 : 15)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("fill", d => d === "arrow" ? "#64748b" : "#a855f7")
+            .attr("d", "M0,-5L10,0L0,5");
+
+        const g = svg.append("g");
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on("zoom", (event) => g.attr("transform", event.transform));
+
+        svg.call(zoom);
+
+        window.zoomIn = () => svg.transition().call(zoom.scaleBy, 1.3);
+        window.zoomOut = () => svg.transition().call(zoom.scaleBy, 0.7);
+        window.resetZoom = () => svg.transition().call(zoom.transform, d3.zoomIdentity);
+
+        // Free force layout
+        const simulation = d3.forceSimulation(data.nodes)
+            .force("link", d3.forceLink(data.links).id(d => d.id).distance(150))
+            .force("charge", d3.forceManyBody().strength(-400))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(d => d.size + 30));
+
+        // Links
+        const link = g.append("g")
+            .selectAll("line")
+            .data(data.links)
+            .join("line")
+            .attr("class", d => "link " + (d.dashed ? "dashed" : "child"))
+            .attr("marker-end", d => d.dashed ? "url(#arrow-link)" : "url(#arrow)");
+
+        // Link labels
+        const linkLabel = g.append("g")
+            .selectAll("text")
+            .data(data.links.filter(d => d.dashed))
+            .join("text")
+            .attr("class", "link-label")
+            .text(d => d.type);
+
+        // Nodes
+        const node = g.append("g")
+            .selectAll(".node")
+            .data(data.nodes)
+            .join("g")
+            .attr("class", "node")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended));
+
+        node.append("circle")
+            .attr("r", d => d.size)
+            .attr("fill", d => d.bgColor)
+            .attr("stroke", d => d.strokeColor)
+            .attr("stroke-width", 3);
+
+        // 이슈 키 (노드 안)
+        node.append("text")
+            .attr("dy", -2)
+            .attr("text-anchor", "middle")
+            .attr("class", "node-key")
+            .style("font-size", d => Math.max(8, d.size / 4) + "px")
+            .text(d => d.id);
+
+        // 타이틀 (노드 아래)
+        node.append("text")
+            .attr("dy", d => d.size + 14)
+            .attr("text-anchor", "middle")
+            .attr("class", "node-label")
+            .style("font-size", "9px")
+            .style("fill", "#94a3b8")
+            .text(d => d.label.length > 25 ? d.label.substring(0, 25) + "..." : d.label);
+
+        const tooltip = d3.select("#tooltip");
+
+        node.on("mouseover", (event, d) => {{
+            tooltip.style("opacity", 1)
+                .html(`<div class="key">${{d.id}}</div>
+                       <div class="summary">${{d.label}}</div>
+                       <div class="meta">${{d.type}} · ${{d.status}}</div>`)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }})
+        .on("mouseout", () => tooltip.style("opacity", 0))
+        .on("click", (event, d) => {{
+            window.open(jiraUrl + "/browse/" + d.id, "_blank");
+        }});
+
+        simulation.on("tick", () => {{
+            // 링크 끝점을 노드 가장자리에 맞춤
+            link.each(function(d) {{
+                const dx = d.target.x - d.source.x;
+                const dy = d.target.y - d.source.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist === 0) return;
+                const sourceR = d.source.size || 25;
+                const targetR = d.target.size || 25;
+                d.sourceX = d.source.x + (dx / dist) * sourceR;
+                d.sourceY = d.source.y + (dy / dist) * sourceR;
+                d.targetX = d.target.x - (dx / dist) * (targetR + 8);
+                d.targetY = d.target.y - (dy / dist) * (targetR + 8);
+            }});
+
+            link
+                .attr("x1", d => d.sourceX)
+                .attr("y1", d => d.sourceY)
+                .attr("x2", d => d.targetX)
+                .attr("y2", d => d.targetY);
+
+            linkLabel
+                .attr("x", d => (d.source.x + d.target.x) / 2)
+                .attr("y", d => (d.source.y + d.target.y) / 2);
+
+            node.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
+        }});
+
+        function dragstarted(event, d) {{
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }}
+
+        function dragged(event, d) {{
+            d.fx = event.x;
+            d.fy = event.y;
+        }}
+
+        function dragended(event, d) {{
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }}
+
+        // Initial zoom to fit
+        setTimeout(() => {{
+            const bounds = g.node().getBBox();
+            const fullWidth = bounds.width;
+            const fullHeight = bounds.height;
+            const midX = bounds.x + fullWidth / 2;
+            const midY = bounds.y + fullHeight / 2;
+            const scale = 0.7 / Math.max(fullWidth / width, fullHeight / height);
+            const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+            svg.transition().duration(750).call(
+                zoom.transform,
+                d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+            );
+        }}, 1000);
+    </script>
+</body>
+</html>'''
+
+        # 파일로 저장
+        if output_path:
+            file_path = Path(output_path)
+        else:
+            file_path = Path(settings.data_path) / "jira_graphs" / f"{issue_key}_graph.html"
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(html_template)
+
+        return {
+            "issue_key": issue_key,
+            "file_path": str(file_path),
+            "node_count": len(graph_data["nodes"]),
+            "link_count": len(graph_data["links"]),
+            "message": f"그래프가 생성되었습니다. 브라우저에서 열어보세요: {file_path}",
+        }
+
     def analyze_jira_image(self, issue_key: str, attachment_index: int = 0, prompt: str = "이 이미지를 분석해주세요.") -> dict:
         """Jira 이슈의 첨부 이미지를 분석합니다."""
         import requests
@@ -1263,16 +1757,25 @@ claude -p '{escaped_prompt}' --print
             return {"error": str(e)}
 
     def _extract_jira_description(self, description: dict | None) -> str | None:
-        """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
+        """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환
+        링크도 함께 추출하여 텍스트에 포함"""
         if not description:
             return None
         if isinstance(description, str):
             return description
 
-        # ADF 형식 파싱
+        # ADF 형식 파싱 (링크 포함)
         def extract_text(node: dict) -> str:
             if node.get("type") == "text":
-                return node.get("text", "")
+                text = node.get("text", "")
+                # 링크가 있으면 URL도 추가
+                marks = node.get("marks", [])
+                for mark in marks:
+                    if mark.get("type") == "link":
+                        href = mark.get("attrs", {}).get("href", "")
+                        if href and href not in text:
+                            text = f"{text} ({href})"
+                return text
             if "content" in node:
                 return "".join(extract_text(child) for child in node["content"])
             return ""
@@ -1526,6 +2029,206 @@ git fetch --prune 2>/dev/null
             "branches": branches,
             "count": len(branches)
         }
+
+
+    # =====================
+    # Notion MCP 연동
+    # =====================
+
+    def _get_notion_token(self) -> dict | None:
+        """mcp-remote가 저장한 Notion OAuth 토큰을 가져옵니다."""
+        mcp_auth_dir = Path.home() / ".mcp-auth"
+        if not mcp_auth_dir.exists():
+            return None
+
+        # 최신 버전 디렉토리 찾기
+        latest_dir = None
+        latest_version = (0, 0, 0)
+        for d in mcp_auth_dir.iterdir():
+            if d.is_dir() and d.name.startswith("mcp-remote-"):
+                try:
+                    version_str = d.name.replace("mcp-remote-", "")
+                    version = tuple(int(x) for x in version_str.split("."))
+                    if version > latest_version:
+                        latest_version = version
+                        latest_dir = d
+                except ValueError:
+                    continue
+
+        if not latest_dir:
+            return None
+
+        # tokens.json 찾기
+        for f in latest_dir.iterdir():
+            if f.name.endswith("_tokens.json"):
+                try:
+                    with open(f, "r") as file:
+                        tokens = json.load(file)
+                        if tokens.get("access_token"):
+                            return tokens
+                except Exception:
+                    continue
+        return None
+
+    _notion_session_id: str | None = None
+
+    def _parse_sse_response(self, text: str) -> dict | None:
+        """SSE 형식 응답에서 JSON 데이터 추출"""
+        for line in text.split("\n"):
+            if line.startswith("data: "):
+                try:
+                    return json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
+        return None
+
+    def _notion_mcp_init(self) -> str | None:
+        """MCP 세션 초기화하고 세션 ID 반환"""
+        tokens = self._get_notion_token()
+        if not tokens:
+            return None
+
+        access_token = tokens.get("access_token")
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "pm-agent", "version": "1.0.0"}
+            }
+        }
+
+        try:
+            response = requests.post(
+                "https://mcp.notion.com/mcp",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            if response.status_code == 200:
+                return response.headers.get("mcp-session-id")
+        except Exception:
+            pass
+        return None
+
+    def _notion_mcp_call(self, method: str, params: dict | None = None) -> dict:
+        """Notion MCP 서버에 JSON-RPC 호출"""
+        tokens = self._get_notion_token()
+        if not tokens:
+            return {"error": "Notion OAuth 토큰이 없습니다. Claude Code에서 Notion MCP를 먼저 연결해주세요."}
+
+        # 세션 ID 없으면 초기화
+        if not self._notion_session_id:
+            self._notion_session_id = self._notion_mcp_init()
+            if not self._notion_session_id:
+                return {"error": "Notion MCP 세션 초기화 실패"}
+
+        access_token = tokens.get("access_token")
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "mcp-session-id": self._notion_session_id,
+        }
+
+        # JSON-RPC 2.0 요청
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": method,
+            "params": params or {}
+        }
+
+        try:
+            response = requests.post(
+                "https://mcp.notion.com/mcp",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+
+            if response.status_code == 401:
+                self._notion_session_id = None  # 세션 리셋
+                return {"error": "Notion 인증 만료. Claude Code에서 Notion MCP를 다시 연결해주세요."}
+
+            if response.status_code != 200:
+                return {"error": f"Notion MCP 오류: {response.status_code} - {response.text}"}
+
+            # SSE 형식 응답 파싱
+            result = self._parse_sse_response(response.text)
+            if not result:
+                return {"error": "응답 파싱 실패", "raw": response.text[:500]}
+
+            if "error" in result:
+                return {"error": f"MCP 오류: {result['error']}"}
+
+            return result.get("result", result)
+        except requests.exceptions.Timeout:
+            return {"error": "Notion MCP 타임아웃"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_notion_page(self, page_url_or_id: str) -> dict:
+        """Notion 페이지 내용을 가져옵니다.
+
+        Args:
+            page_url_or_id: Notion 페이지 URL 또는 ID
+        """
+        result = self._notion_mcp_call("tools/call", {
+            "name": "notion-fetch",
+            "arguments": {"id": page_url_or_id}
+        })
+
+        if "error" in result:
+            return result
+
+        # 결과 파싱
+        content = result.get("content", [])
+        if content and len(content) > 0:
+            text_content = content[0].get("text", "")
+            return {
+                "page_url": page_url_or_id,
+                "content": text_content,
+            }
+
+        return {"error": "페이지 내용을 가져올 수 없습니다.", "raw": result}
+
+    def search_notion(self, query: str, page_url: str | None = None) -> dict:
+        """Notion에서 검색합니다.
+
+        Args:
+            query: 검색어
+            page_url: 특정 페이지 내에서 검색 (선택)
+        """
+        params = {"query": query}
+        if page_url:
+            params["page_url"] = page_url
+
+        result = self._notion_mcp_call("tools/call", {
+            "name": "notion-search",
+            "arguments": params
+        })
+
+        if "error" in result:
+            return result
+
+        content = result.get("content", [])
+        if content and len(content) > 0:
+            text_content = content[0].get("text", "")
+            return {
+                "query": query,
+                "results": text_content,
+            }
+
+        return {"error": "검색 결과가 없습니다.", "raw": result}
 
 
 # 싱글톤 인스턴스

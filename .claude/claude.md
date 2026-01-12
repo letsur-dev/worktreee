@@ -80,6 +80,13 @@ OpenWebUI / Client
 │  │   - list_directory            │  │
 │  │   - scan_projects             │  │
 │  │   - get_jira_issue            │  │
+│  │   - get_jira_graph            │  │
+│  │   - analyze_jira_image        │  │
+│  │   - sync_task_status          │  │
+│  │   - list_branches             │  │
+│  │   - get_notion_page           │  │
+│  │   - search_notion             │  │
+│  │   - get_task_context          │  │
 │  └───────────────┬───────────────┘  │
 │                  │                  │
 │  ┌───────────────▼───────────────┐  │
@@ -193,10 +200,19 @@ OpenAI 호환 채팅 API
 - `task_name`: 태스크 이름 - 워크트리 폴더명 (필수, 예: PRDEL-107-invite-feature)
 - `branch`: Git 브랜치명 (선택, 예: feature/PRDEL-107/invite-feature, 생략시 task_name 사용)
 - `context`: 태스크 컨텍스트 (필수)
+- `jira_key`: 연결할 Jira 이슈 키 (선택, 예: PRDEL-107)
+- `notion_urls`: 연결할 Notion 문서 URL 목록 (선택)
 
 동작:
 1. 태스크 등록 → 2. 워크트리 생성 → 3. Claude 세션 자동 시작
 4. 사용자가 `claude --continue`로 바로 작업 가능
+
+### get_task_context
+태스크의 전체 컨텍스트 조회 (Jira + Notion 자동 조회)
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+
+반환: 태스크 정보 + 연결된 Jira 이슈 + Notion 문서 내용
 
 ### update_task_status
 태스크 상태 업데이트
@@ -260,9 +276,47 @@ Documents 하위에서 Git 프로젝트 스캔
 
 ### get_jira_issue
 Jira 이슈 정보 조회
-- `issue_key`: Jira 이슈 키 (필수, 예: PRDEL-107, PROJ-123)
+- `issue_key`: Jira 이슈 키 (필수, 예: PRDEL-107)
+- `recursive`: 하위의 하위, 링크된 이슈까지 전체 트리 조회 (기본: false)
+- `fetch_notion`: Notion 링크 발견시 자동 조회 (기본: true)
 
-반환 정보: key, summary, description, status, assignee, reporter, priority, issue_type, project, created, updated, url
+반환: key, summary, description, status, assignee, comments, attachments, children, linked_issues, notion_pages
+
+### get_jira_graph
+Jira 이슈 트리를 Mermaid 다이어그램으로 시각화
+- `issue_key`: Jira 이슈 키 (필수)
+
+반환: Mermaid 형식의 그래프 코드 (상태별 이모지, 링크 관계 포함)
+
+### analyze_jira_image
+Jira 이슈 첨부 이미지 분석 (Vision API 활용)
+- `issue_key`: Jira 이슈 키 (필수)
+- `attachment_index`: 이미지 인덱스, 0부터 시작 (기본: 0)
+- `prompt`: 분석 요청 프롬프트 (기본: "이 이미지를 분석해주세요.")
+
+### sync_task_status
+GitHub PR 상태 기반 태스크 상태 자동 동기화
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (선택, 없으면 전체 태스크)
+
+PR 상태에 따라: OPEN → in_review, MERGED → completed
+
+### list_branches
+프로젝트의 Git 브랜치 목록 조회
+- `project`: 프로젝트 이름 (필수)
+- `pattern`: 브랜치 필터 패턴 (선택, 예: feature/)
+- `remote_only`: 리모트 브랜치만 조회 (기본: false)
+
+### get_notion_page
+Notion 페이지 내용 조회 (OAuth 토큰 사용)
+- `page_url_or_id`: Notion 페이지 URL 또는 ID (필수)
+
+> ~/.mcp-auth에 저장된 OAuth 토큰을 사용합니다.
+
+### search_notion
+Notion 워크스페이스 검색
+- `query`: 검색어 (필수)
+- `page_url`: 특정 페이지 내 검색 (선택)
 
 ## 환경변수
 
@@ -324,7 +378,14 @@ projects:
         status: in_progress
         context: |
           초대 기능 구현
+        jira_key: PRDEL-107
+        notion_urls:
+          - https://notion.so/Invite-Feature-Spec-abc123
         created: '2025-12-31T00:00:00'
+        pr:
+          number: 42
+          url: https://github.com/org/repo/pull/42
+          state: OPEN
 ```
 
 ## 로드맵
@@ -357,11 +418,25 @@ projects:
 - [x] 호스트에서 `claude --continue` 가능
 - [x] create_task 시 Claude 세션 자동 시작
 
-### Phase 5: Jira 연동 ✅
+### Phase 5: Jira 연동 고도화 ✅
 - [x] get_jira_issue 도구
 - [x] Jira API 인증 (Basic Auth)
 - [x] ADF (Atlassian Document Format) 파싱
+- [x] 재귀적 이슈 트리 조회 (recursive)
+- [x] Mermaid 그래프 시각화 (get_jira_graph)
+- [x] 첨부 이미지 분석 (analyze_jira_image)
+- [x] 댓글/첨부파일 조회
+- [x] GitHub PR 상태 동기화 (sync_task_status)
+- [x] 브랜치 목록 조회 (list_branches)
 
-### Phase 6: 고도화
+### Phase 6: Notion 연동 ✅
+- [x] Notion MCP OAuth 토큰 연동 (~/.mcp-auth)
+- [x] get_notion_page 도구
+- [x] search_notion 도구
+- [x] Jira 이슈에서 Notion 링크 자동 감지/조회
+- [x] Task에 jira_key, notion_urls 연결
+- [x] get_task_context로 통합 컨텍스트 조회
+
+### Phase 7: 고도화
 - [ ] 스트리밍 응답
 - [ ] 웹훅/알림

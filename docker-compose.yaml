@@ -6,11 +6,13 @@ services:
     ports:
       - "9001:8000"
     volumes:
+      - ./:/app  # 소스코드 마운트 (핫리로드)
       - ./data:/data
       - /home/amos/Documents:/home/amos/Documents
       - /home/amos/.ssh:/home/amos/.ssh:ro
       - /home/amos/.claude:/home/amos/.claude
       - /home/amos/.config/gh:/home/amos/.config/gh:ro  # GitHub CLI 인증
+      - /home/amos/.mcp-auth:/home/amos/.mcp-auth:ro  # Notion OAuth 토큰
     environment:
       - HOME=/home/amos
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
