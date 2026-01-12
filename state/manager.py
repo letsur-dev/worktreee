@@ -922,11 +922,12 @@ claude -p '{escaped_prompt}' --print
                 if linked:
                     result["linked_issues"] = linked
 
-            # Epic이면 하위 스토리 조회 (JQL 검색)
-            if issue_type and issue_type.lower() == "epic":
-                epic_children = self._get_epic_children(issue_key, auth, headers)
-                if epic_children:
-                    result["epic_children"] = epic_children
+            # 하위 이슈 조회 (JQL 검색) - subtasks가 없는 경우
+            # Epic, Project, Scope 등 상위 타입은 parent 관계로 하위 이슈를 가질 수 있음
+            if not subtasks:
+                children = self._get_children(issue_key, auth, headers)
+                if children:
+                    result["children"] = children
 
             # Parent 정보 (이 이슈가 하위 이슈인 경우)
             parent = fields.get("parent")
@@ -944,21 +945,22 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"error": str(e)}
 
-    def _get_epic_children(self, epic_key: str, auth, headers) -> list:
-        """Epic의 하위 이슈들을 JQL로 조회"""
+    def _get_children(self, issue_key: str, auth, headers) -> list:
+        """parent 관계의 하위 이슈들을 JQL로 조회"""
         import requests
 
-        # Jira Cloud에서 Epic Link 필드명
-        jql = f'"Epic Link" = {epic_key} OR parent = {epic_key}'
-        url = f"{settings.jira_url}/rest/api/3/search"
-        params = {
+        # parent 필드 또는 Epic Link로 연결된 이슈 검색
+        jql = f'parent = {issue_key} OR "Epic Link" = {issue_key}'
+        url = f"{settings.jira_url}/rest/api/3/search/jql"
+        req_headers = {**headers, "Content-Type": "application/json"}
+        body = {
             "jql": jql,
-            "fields": "key,summary,status,issuetype,assignee",
+            "fields": ["key", "summary", "status", "issuetype", "assignee"],
             "maxResults": 50,
         }
 
         try:
-            response = requests.get(url, headers=headers, auth=auth, params=params, timeout=30)
+            response = requests.post(url, headers=req_headers, auth=auth, json=body, timeout=30)
             if response.status_code != 200:
                 return []
 
