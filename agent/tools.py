@@ -318,13 +318,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_jira_issue",
-            "description": "Jira 이슈 정보를 조회합니다. 이슈 키(예: PRDEL-107)를 입력하면 제목, 설명, 상태, 담당자 등을 반환합니다.",
+            "description": "Jira 이슈 정보를 조회합니다. 이슈 키(예: PRDEL-107)를 입력하면 제목, 설명, 상태, 담당자 등을 반환합니다. recursive=true로 하면 하위의 하위, 링크된 이슈까지 전체 트리를 조회합니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "issue_key": {
                         "type": "string",
                         "description": "Jira 이슈 키 (예: PRDEL-107, PROJ-123)",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "true면 하위의 하위, 링크된 이슈까지 재귀적으로 전체 트리 조회 (기본값: false)",
                     },
                 },
                 "required": ["issue_key"],
@@ -482,6 +486,7 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         elif name == "get_jira_issue":
             result = state_manager.get_jira_issue(
                 issue_key=arguments["issue_key"],
+                recursive=arguments.get("recursive", False),
             )
         elif name == "sync_task_status":
             result = state_manager.sync_task_status(

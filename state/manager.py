@@ -843,8 +843,14 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"error": str(e)}
 
-    def get_jira_issue(self, issue_key: str, include_children: bool = True) -> dict:
-        """Jira 이슈 정보를 조회합니다. 하위 이슈와 연결된 이슈도 함께 조회."""
+    def get_jira_issue(self, issue_key: str, include_children: bool = True, recursive: bool = False) -> dict:
+        """Jira 이슈 정보를 조회합니다.
+
+        Args:
+            issue_key: Jira 이슈 키 (예: PRDEL-85)
+            include_children: 직접 하위 이슈 포함 여부
+            recursive: True면 하위의 하위, 링크된 이슈까지 재귀적으로 전체 트리 조회
+        """
         import requests
         from requests.auth import HTTPBasicAuth
 
@@ -853,6 +859,9 @@ claude -p '{escaped_prompt}' --print
 
         auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
         headers = {"Accept": "application/json"}
+
+        if recursive:
+            return self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5)
 
         try:
             # 메인 이슈 조회
@@ -978,6 +987,84 @@ claude -p '{escaped_prompt}' --print
             return children
         except Exception:
             return []
+
+    def _get_jira_issue_tree(self, issue_key: str, auth, headers, visited: set, max_depth: int, depth: int = 0) -> dict:
+        """재귀적으로 이슈 트리 전체를 조회 (하위의 하위, 링크된 이슈 포함)"""
+        import requests
+
+        # 무한 루프 방지
+        if issue_key in visited or depth > max_depth:
+            return {"key": issue_key, "_skipped": True, "_reason": "already visited" if issue_key in visited else "max depth"}
+
+        visited.add(issue_key)
+
+        # 이슈 조회
+        url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
+        try:
+            response = requests.get(url, headers=headers, auth=auth, timeout=30)
+            if response.status_code != 200:
+                return {"key": issue_key, "_error": f"HTTP {response.status_code}"}
+
+            data = response.json()
+            fields = data.get("fields", {})
+
+            result = {
+                "key": data.get("key"),
+                "summary": fields.get("summary"),
+                "status": fields.get("status", {}).get("name"),
+                "issue_type": fields.get("issuetype", {}).get("name") if fields.get("issuetype") else None,
+                "assignee": fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
+                "priority": fields.get("priority", {}).get("name") if fields.get("priority") else None,
+            }
+
+            # Subtasks 재귀 조회
+            subtasks = fields.get("subtasks", [])
+            if subtasks:
+                result["subtasks"] = []
+                for st in subtasks:
+                    st_key = st.get("key")
+                    if st_key and st_key not in visited:
+                        child_result = self._get_jira_issue_tree(st_key, auth, headers, visited, max_depth, depth + 1)
+                        result["subtasks"].append(child_result)
+
+            # Children 재귀 조회 (parent 관계)
+            if not subtasks:
+                children_keys = self._get_children(issue_key, auth, headers)
+                if children_keys:
+                    result["children"] = []
+                    for child in children_keys:
+                        child_key = child.get("key")
+                        if child_key and child_key not in visited:
+                            child_result = self._get_jira_issue_tree(child_key, auth, headers, visited, max_depth, depth + 1)
+                            result["children"].append(child_result)
+
+            # Linked Issues 재귀 조회
+            issuelinks = fields.get("issuelinks", [])
+            if issuelinks:
+                result["linked_issues"] = []
+                for link in issuelinks:
+                    link_type = link.get("type", {}).get("name", "관련")
+                    if "outwardIssue" in link:
+                        issue = link["outwardIssue"]
+                        direction = link.get("type", {}).get("outward", "links to")
+                    elif "inwardIssue" in link:
+                        issue = link["inwardIssue"]
+                        direction = link.get("type", {}).get("inward", "linked from")
+                    else:
+                        continue
+
+                    linked_key = issue.get("key")
+                    if linked_key and linked_key not in visited:
+                        linked_result = self._get_jira_issue_tree(linked_key, auth, headers, visited, max_depth, depth + 1)
+                        linked_result["_link_type"] = f"{link_type} ({direction})"
+                        result["linked_issues"].append(linked_result)
+
+                if not result["linked_issues"]:
+                    del result["linked_issues"]
+
+            return result
+        except Exception as e:
+            return {"key": issue_key, "_error": str(e)}
 
     def _extract_jira_description(self, description: dict | None) -> str | None:
         """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
