@@ -1174,6 +1174,94 @@ claude -p '{escaped_prompt}' --print
             "node_count": mermaid.count('["'),
         }
 
+    def analyze_jira_image(self, issue_key: str, attachment_index: int = 0, prompt: str = "이 이미지를 분석해주세요.") -> dict:
+        """Jira 이슈의 첨부 이미지를 분석합니다."""
+        import requests
+        from requests.auth import HTTPBasicAuth
+        import base64
+
+        if not settings.jira_url or not settings.jira_email or not settings.jira_api_token:
+            return {"error": "Jira API 설정이 없습니다."}
+
+        auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
+        headers = {"Accept": "application/json"}
+
+        try:
+            # 이슈에서 첨부파일 정보 가져오기
+            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}?fields=attachment"
+            response = requests.get(url, headers=headers, auth=auth, timeout=30)
+            if response.status_code != 200:
+                return {"error": f"이슈 조회 실패: {response.status_code}"}
+
+            attachments = response.json().get("fields", {}).get("attachment", [])
+            # 이미지 타입만 필터링
+            image_attachments = [a for a in attachments if a.get("mimeType", "").startswith("image/")]
+
+            if not image_attachments:
+                return {"error": "이미지 첨부파일이 없습니다."}
+
+            if attachment_index >= len(image_attachments):
+                return {"error": f"첨부파일 인덱스 초과. 이미지 {len(image_attachments)}개 있음."}
+
+            attachment = image_attachments[attachment_index]
+            image_url = attachment.get("content")
+            filename = attachment.get("filename")
+            mime_type = attachment.get("mimeType")
+
+            # 이미지 다운로드
+            img_response = requests.get(image_url, auth=auth, timeout=60)
+            if img_response.status_code != 200:
+                return {"error": f"이미지 다운로드 실패: {img_response.status_code}"}
+
+            # 이미지 리사이즈 (최대 2048px)
+            from io import BytesIO
+            from PIL import Image
+
+            img = Image.open(BytesIO(img_response.content))
+            max_size = 2048
+            if img.width > max_size or img.height > max_size:
+                ratio = min(max_size / img.width, max_size / img.height)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+
+            # PNG로 변환 후 base64 인코딩
+            buffer = BytesIO()
+            img.save(buffer, format="PNG")
+            image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            mime_type = "image/png"  # 리사이즈 후 PNG로 통일
+
+            # LLM으로 이미지 분석
+            from agent.llm import llm_client
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{image_b64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": f"Jira 이슈 {issue_key}의 첨부 이미지 '{filename}'입니다.\n\n{prompt}"
+                        }
+                    ]
+                }
+            ]
+
+            llm_response = llm_client.chat(messages)
+            analysis = llm_response.choices[0].message.content
+
+            return {
+                "issue_key": issue_key,
+                "filename": filename,
+                "analysis": analysis,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
     def _extract_jira_description(self, description: dict | None) -> str | None:
         """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
         if not description:

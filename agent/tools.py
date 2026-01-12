@@ -353,6 +353,32 @@ TOOLS = [
             },
         },
     },
+    # Jira 이미지 분석
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_jira_image",
+            "description": "Jira 이슈에 첨부된 이미지를 분석합니다. 스크린샷, 다이어그램, 목업 등을 AI가 분석하여 설명합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "issue_key": {
+                        "type": "string",
+                        "description": "Jira 이슈 키 (예: PRDEL-102)",
+                    },
+                    "attachment_index": {
+                        "type": "integer",
+                        "description": "분석할 이미지 인덱스 (0부터 시작, 기본값: 0)",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "이미지에 대해 물어볼 질문 (기본값: '이 이미지를 분석해주세요.')",
+                    },
+                },
+                "required": ["issue_key"],
+            },
+        },
+    },
     # PR 상태 동기화
     {
         "type": "function",
@@ -509,6 +535,12 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         elif name == "get_jira_graph":
             result = state_manager.get_jira_graph(
                 issue_key=arguments["issue_key"],
+            )
+        elif name == "analyze_jira_image":
+            result = state_manager.analyze_jira_image(
+                issue_key=arguments["issue_key"],
+                attachment_index=arguments.get("attachment_index", 0),
+                prompt=arguments.get("prompt", "이 이미지를 분석해주세요."),
             )
         elif name == "sync_task_status":
             result = state_manager.sync_task_status(
