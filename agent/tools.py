@@ -335,6 +335,24 @@ TOOLS = [
             },
         },
     },
+    # Jira 그래프 시각화
+    {
+        "type": "function",
+        "function": {
+            "name": "get_jira_graph",
+            "description": "Jira 이슈와 하위 이슈들을 Mermaid 다이어그램으로 시각화합니다. 상태별 이모지와 링크 관계를 포함한 전체 트리를 그래프로 보여줍니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "issue_key": {
+                        "type": "string",
+                        "description": "Jira 이슈 키 (예: PRDEL-85)",
+                    },
+                },
+                "required": ["issue_key"],
+            },
+        },
+    },
     # PR 상태 동기화
     {
         "type": "function",
@@ -487,6 +505,10 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             result = state_manager.get_jira_issue(
                 issue_key=arguments["issue_key"],
                 recursive=arguments.get("recursive", False),
+            )
+        elif name == "get_jira_graph":
+            result = state_manager.get_jira_graph(
+                issue_key=arguments["issue_key"],
             )
         elif name == "sync_task_status":
             result = state_manager.sync_task_status(

@@ -1066,6 +1066,90 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"key": issue_key, "_error": str(e)}
 
+    def _tree_to_mermaid(self, tree: dict) -> str:
+        """이슈 트리를 Mermaid 다이어그램으로 변환"""
+        lines = ["graph TD"]
+        edges = []
+        visited = set()
+
+        def status_emoji(status: str | None) -> str:
+            if not status:
+                return "⚪"
+            s = status.lower()
+            if "progress" in s:
+                return "🟡"
+            if "done" in s or "complete" in s or "merged" in s or "deployed" in s:
+                return "🟢"
+            if "review" in s:
+                return "🔵"
+            return "⚪"
+
+        def escape_label(text: str) -> str:
+            # Mermaid에서 특수문자 이스케이프
+            return text.replace('"', "'").replace("[", "(").replace("]", ")")[:40]
+
+        def process_node(node: dict, parent_key: str | None = None, link_type: str | None = None):
+            if not node or node.get("_skipped") or node.get("_error"):
+                return
+
+            key = node.get("key")
+            if not key or key in visited:
+                return
+            visited.add(key)
+
+            # 노드 정의
+            emoji = status_emoji(node.get("status"))
+            summary = escape_label(node.get("summary") or "")
+            lines.append(f'    {key}["{emoji} {key}: {summary}"]')
+
+            # 엣지 (부모 → 자식)
+            if parent_key:
+                if link_type:
+                    edges.append(f'    {parent_key} -.->|"{link_type}"| {key}')
+                else:
+                    edges.append(f"    {parent_key} --> {key}")
+
+            # 하위 이슈 처리
+            for child in node.get("children", []):
+                process_node(child, key)
+            for child in node.get("subtasks", []):
+                process_node(child, key)
+
+            # 링크된 이슈 처리 (점선)
+            for linked in node.get("linked_issues", []):
+                lt = linked.get("_link_type", "related")
+                # 짧게 줄이기
+                if "blocks" in lt.lower():
+                    lt = "blocks"
+                elif "relates" in lt.lower():
+                    lt = "relates"
+                process_node(linked, key, lt)
+
+        process_node(tree)
+        return "\n".join(lines + edges)
+
+    def get_jira_graph(self, issue_key: str) -> dict:
+        """Jira 이슈 트리를 Mermaid 그래프로 반환"""
+        import requests
+        from requests.auth import HTTPBasicAuth
+
+        if not settings.jira_url or not settings.jira_email or not settings.jira_api_token:
+            return {"error": "Jira API 설정이 없습니다."}
+
+        auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
+        headers = {"Accept": "application/json"}
+
+        tree = self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5)
+        if "error" in tree or "_error" in tree:
+            return tree
+
+        mermaid = self._tree_to_mermaid(tree)
+        return {
+            "issue_key": issue_key,
+            "mermaid": mermaid,
+            "node_count": mermaid.count('["'),
+        }
+
     def _extract_jira_description(self, description: dict | None) -> str | None:
         """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
         if not description:
