@@ -864,8 +864,8 @@ claude -p '{escaped_prompt}' --print
             return self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5)
 
         try:
-            # 메인 이슈 조회
-            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
+            # 메인 이슈 조회 (댓글, 첨부파일 포함)
+            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}?fields=*all,-worklog"
             response = requests.get(url, headers=headers, auth=auth, timeout=30)
             if response.status_code == 404:
                 return {"error": f"이슈 '{issue_key}'를 찾을 수 없습니다."}
@@ -891,6 +891,30 @@ claude -p '{escaped_prompt}' --print
                 "updated": fields.get("updated"),
                 "url": f"{settings.jira_url}/browse/{issue_key}",
             }
+
+            # 댓글 추가
+            comments_data = fields.get("comment", {}).get("comments", [])
+            if comments_data:
+                result["comments"] = []
+                for c in comments_data:
+                    comment_text = self._extract_jira_description(c.get("body"))
+                    result["comments"].append({
+                        "author": c.get("author", {}).get("displayName"),
+                        "created": c.get("created", "")[:10],
+                        "body": comment_text,
+                    })
+
+            # 첨부파일 추가
+            attachments = fields.get("attachment", [])
+            if attachments:
+                result["attachments"] = []
+                for a in attachments:
+                    result["attachments"].append({
+                        "filename": a.get("filename"),
+                        "mimeType": a.get("mimeType"),
+                        "size": a.get("size"),
+                        "url": a.get("content"),  # 다운로드 URL
+                    })
 
             if not include_children:
                 return result
