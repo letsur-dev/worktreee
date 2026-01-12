@@ -901,6 +901,42 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"error": str(e)}
 
+    def _adf_to_text(self, adf: dict | None) -> str:
+        """Atlassian Document Format(ADF)를 plain text로 변환"""
+        if not adf:
+            return ""
+
+        texts = []
+
+        def extract_text(node: dict | list | None):
+            if node is None:
+                return
+            if isinstance(node, list):
+                for item in node:
+                    extract_text(item)
+                return
+            if isinstance(node, dict):
+                # text 노드
+                if node.get("type") == "text":
+                    texts.append(node.get("text", ""))
+                    # marks 안의 링크 추출 (href)
+                    for mark in node.get("marks", []):
+                        if mark.get("type") == "link":
+                            href = mark.get("attrs", {}).get("href", "")
+                            if href:
+                                texts.append(href)
+                # inlineCard (링크)
+                elif node.get("type") == "inlineCard":
+                    url = node.get("attrs", {}).get("url", "")
+                    if url:
+                        texts.append(url)
+                # 재귀 탐색
+                if "content" in node:
+                    extract_text(node["content"])
+
+        extract_text(adf)
+        return " ".join(texts)
+
     def _extract_notion_urls(self, text: str | None) -> list[str]:
         """텍스트에서 Notion URL 추출"""
         import re
@@ -1238,6 +1274,10 @@ claude -p '{escaped_prompt}' --print
             data = response.json()
             fields = data.get("fields", {})
 
+            # Description에서 텍스트 추출 (ADF -> plain text)
+            description_adf = fields.get("description")
+            description_text = self._adf_to_text(description_adf) if description_adf else ""
+
             result = {
                 "key": data.get("key"),
                 "summary": fields.get("summary"),
@@ -1246,6 +1286,11 @@ claude -p '{escaped_prompt}' --print
                 "assignee": fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
                 "priority": fields.get("priority", {}).get("name") if fields.get("priority") else None,
             }
+
+            # Notion URL 추출
+            notion_urls = self._extract_notion_urls(description_text)
+            if notion_urls:
+                result["notion_urls"] = notion_urls
 
             # Subtasks 재귀 조회
             subtasks = fields.get("subtasks", [])
@@ -1380,11 +1425,17 @@ claude -p '{escaped_prompt}' --print
             "node_count": mermaid.count('["'),
         }
 
-    def _tree_to_graph_data(self, tree: dict) -> dict:
-        """이슈 트리를 D3 그래프용 nodes/links 데이터로 변환"""
+    def _tree_to_graph_data(self, tree: dict, notion_titles: dict | None = None) -> dict:
+        """이슈 트리를 D3 그래프용 nodes/links 데이터로 변환
+
+        Args:
+            tree: Jira 이슈 트리
+            notion_titles: Notion URL -> 제목 매핑 (선택)
+        """
         nodes = []
         links = []
         visited = set()
+        notion_titles = notion_titles or {}
 
         def get_status_color(status: str | None) -> str:
             """상태별 테두리 색상"""
@@ -1416,6 +1467,16 @@ claude -p '{escaped_prompt}' --print
                 return "#64748b", 20  # gray, small
             return "#475569", 25  # default
 
+        def get_notion_node_id(url: str) -> str:
+            """Notion URL에서 고유 ID 생성"""
+            # URL에서 마지막 부분 추출 (페이지 ID)
+            import re
+            match = re.search(r'([a-f0-9]{32}|[a-f0-9-]{36})(?:\?|$)', url)
+            if match:
+                return f"notion-{match.group(1)[:8]}"
+            # fallback: URL 해시
+            return f"notion-{hash(url) % 100000:05d}"
+
         def process_node(node: dict, parent_key: str | None = None, link_type: str | None = None, depth: int = 0):
             if not node or node.get("_skipped") or node.get("_error"):
                 return
@@ -1441,6 +1502,31 @@ claude -p '{escaped_prompt}' --print
                     "size": size,
                     "depth": depth,
                 })
+
+                # Notion 페이지 노드 추가
+                for notion_url in node.get("notion_urls", []):
+                    notion_id = get_notion_node_id(notion_url)
+                    if notion_id not in visited:
+                        visited.add(notion_id)
+                        title = notion_titles.get(notion_url, "Notion 문서")
+                        nodes.append({
+                            "id": notion_id,
+                            "label": title[:40],
+                            "status": "",
+                            "type": "notion",
+                            "bgColor": "#000000",  # Notion 검정
+                            "strokeColor": "#ffffff",  # 흰색 테두리
+                            "size": 22,
+                            "depth": depth + 1,
+                            "url": notion_url,
+                        })
+                    # Jira → Notion 링크
+                    links.append({
+                        "source": key,
+                        "target": notion_id,
+                        "type": "notion",
+                        "dashed": True,
+                    })
 
             # 엣지 추가 (부모 → 자식)
             if parent_key:
@@ -1476,8 +1562,61 @@ claude -p '{escaped_prompt}' --print
         process_node(tree)
         return {"nodes": nodes, "links": links}
 
-    def get_jira_graph_html(self, issue_key: str, output_path: str | None = None) -> dict:
-        """Jira 이슈 그래프를 D3.js 인터랙티브 HTML로 생성"""
+    def _collect_notion_urls_from_tree(self, tree: dict) -> set[str]:
+        """이슈 트리에서 모든 Notion URL 수집"""
+        urls = set()
+
+        def collect(node: dict):
+            if not node or node.get("_skipped") or node.get("_error"):
+                return
+            urls.update(node.get("notion_urls", []))
+            for child in node.get("children", []):
+                collect(child)
+            for child in node.get("subtasks", []):
+                collect(child)
+            for linked in node.get("linked_issues", []):
+                collect(linked)
+
+        collect(tree)
+        return urls
+
+    def _fetch_notion_titles(self, urls: set[str]) -> dict[str, str]:
+        """Notion URL들의 제목을 가져옵니다. (병렬 처리)"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if not urls:
+            return {}
+
+        titles = {}
+
+        def fetch_title(url: str) -> tuple[str, str]:
+            result = self.get_notion_page(url)
+            if "error" not in result:
+                return url, result.get("title", "Notion 문서")
+            return url, "Notion 문서"
+
+        try:
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(fetch_title, url): url for url in list(urls)[:10]}  # 최대 10개
+                for future in as_completed(futures, timeout=30):
+                    try:
+                        url, title = future.result()
+                        titles[url] = title
+                    except Exception:
+                        titles[futures[future]] = "Notion 문서"
+        except Exception:
+            pass
+
+        return titles
+
+    def get_jira_graph_html(self, issue_key: str, output_path: str | None = None, include_notion: bool = True) -> dict:
+        """Jira 이슈 그래프를 D3.js 인터랙티브 HTML로 생성
+
+        Args:
+            issue_key: Jira 이슈 키
+            output_path: HTML 파일 저장 경로 (없으면 자동 생성)
+            include_notion: Notion 페이지를 그래프에 포함할지 여부
+        """
         import requests
         from requests.auth import HTTPBasicAuth
         import json as json_module
@@ -1492,7 +1631,14 @@ claude -p '{escaped_prompt}' --print
         if "error" in tree or "_error" in tree:
             return tree
 
-        graph_data = self._tree_to_graph_data(tree)
+        # Notion 제목 가져오기 (선택)
+        notion_titles = {}
+        if include_notion:
+            notion_urls = self._collect_notion_urls_from_tree(tree)
+            if notion_urls:
+                notion_titles = self._fetch_notion_titles(notion_urls)
+
+        graph_data = self._tree_to_graph_data(tree, notion_titles)
         jira_base_url = settings.jira_url
 
         html_template = f'''<!DOCTYPE html>
@@ -1584,6 +1730,8 @@ claude -p '{escaped_prompt}' --print
         <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#3b82f6;"></div>In Review</div>
         <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#eab308;"></div>In Progress</div>
         <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#9ca3af;"></div>To Do</div>
+        <h4 style="margin-top: 12px;">External</h4>
+        <div class="legend-item"><div class="legend-color" style="background:#000; border-color:#fff; width:14px; height:14px;"></div>Notion</div>
         <h4 style="margin-top: 12px;">Links</h4>
         <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/></svg>Parent → Child</div>
         <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#a855f7" stroke-width="2" stroke-dasharray="3,3"/></svg>Issue Link</div>
@@ -1692,8 +1840,13 @@ claude -p '{escaped_prompt}' --print
         const tooltip = d3.select("#tooltip");
 
         node.on("mouseover", (event, d) => {{
+            const isNotion = d.type === "notion";
             tooltip.style("opacity", 1)
-                .html(`<div class="key">${{d.id}}</div>
+                .html(isNotion
+                    ? `<div class="key" style="color:#fff;">📄 Notion</div>
+                       <div class="summary">${{d.label}}</div>
+                       <div class="meta">클릭하여 열기</div>`
+                    : `<div class="key">${{d.id}}</div>
                        <div class="summary">${{d.label}}</div>
                        <div class="meta">${{d.type}} · ${{d.status}}</div>`)
                 .style("left", (event.pageX + 10) + "px")
@@ -1701,7 +1854,11 @@ claude -p '{escaped_prompt}' --print
         }})
         .on("mouseout", () => tooltip.style("opacity", 0))
         .on("click", (event, d) => {{
-            window.open(jiraUrl + "/browse/" + d.id, "_blank");
+            if (d.type === "notion" && d.url) {{
+                window.open(d.url, "_blank");
+            }} else {{
+                window.open(jiraUrl + "/browse/" + d.id, "_blank");
+            }}
         }});
 
         simulation.on("tick", () => {{

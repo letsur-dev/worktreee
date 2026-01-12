@@ -411,7 +411,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_jira_graph_html",
-            "description": "Jira 이슈 관계를 D3.js 인터랙티브 그래프로 시각화합니다. 드래그, 줌, 클릭(Jira 이동) 가능한 HTML 파일을 생성합니다. Reflect App 스타일의 네트워크 그래프입니다.",
+            "description": "Jira 이슈 관계를 D3.js 인터랙티브 그래프로 시각화합니다. 드래그, 줌, 클릭(Jira/Notion 이동) 가능한 HTML 파일을 생성합니다. Reflect App 스타일의 네트워크 그래프이며, 연결된 Notion 문서도 표시합니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -422,6 +422,10 @@ TOOLS = [
                     "output_path": {
                         "type": "string",
                         "description": "HTML 파일 저장 경로 (옵션, 미지정시 data/jira_graphs/에 저장)",
+                    },
+                    "include_notion": {
+                        "type": "boolean",
+                        "description": "Notion 문서를 그래프에 포함할지 여부 (기본값: true)",
                     },
                 },
                 "required": ["issue_key"],
