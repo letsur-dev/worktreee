@@ -912,6 +912,49 @@ claude -p '{escaped_prompt}' --print
         # 중복 제거
         return list(dict.fromkeys(urls))
 
+    def get_jira_issues_batch(self, issue_keys: list[str], include_comments: bool = True) -> dict:
+        """여러 Jira 이슈를 병렬로 조회합니다.
+
+        Args:
+            issue_keys: Jira 이슈 키 목록 (예: ["PRDEL-101", "PRDEL-102"])
+            include_comments: 댓글 포함 여부
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results = {}
+        errors = []
+
+        def fetch_issue(key: str) -> tuple[str, dict]:
+            result = self.get_jira_issue(key, include_children=False, fetch_notion=False)
+            return key, result
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_issue, key): key for key in issue_keys}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    _, result = future.result()
+                    if "error" in result:
+                        errors.append(f"{key}: {result['error']}")
+                    else:
+                        results[key] = result
+                except Exception as e:
+                    errors.append(f"{key}: {str(e)}")
+
+        # 전체 정리된 출력 생성
+        formatted_all = []
+        for key in issue_keys:
+            if key in results:
+                formatted_all.append(results[key].get("formatted", f"[{key}] 내용 없음"))
+                formatted_all.append("\n---\n")
+
+        return {
+            "count": len(results),
+            "issues": results,
+            "errors": errors if errors else None,
+            "formatted": "\n".join(formatted_all),
+        }
+
     def get_jira_issue(self, issue_key: str, include_children: bool = True, recursive: bool = False, fetch_notion: bool = True) -> dict:
         """Jira 이슈 정보를 조회합니다.
 
@@ -987,6 +1030,7 @@ claude -p '{escaped_prompt}' --print
                     })
 
             if not include_children:
+                result["formatted"] = self._format_jira_issue(result)
                 return result
 
             # Subtasks 조회

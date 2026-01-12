@@ -369,6 +369,25 @@ TOOLS = [
             },
         },
     },
+    # Jira 다중 이슈 병렬 조회
+    {
+        "type": "function",
+        "function": {
+            "name": "get_jira_issues_batch",
+            "description": "여러 Jira 이슈를 병렬로 한번에 조회합니다. 상위 이슈의 하위 이슈들을 한번에 조회할 때 유용합니다. 각 이슈의 설명, 댓글, 상태 등을 모두 포함합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "issue_keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Jira 이슈 키 목록 (예: [\"PRDEL-101\", \"PRDEL-102\", \"PRDEL-103\"])",
+                    },
+                },
+                "required": ["issue_keys"],
+            },
+        },
+    },
     # Jira 그래프 시각화
     {
         "type": "function",
@@ -634,6 +653,10 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 issue_key=arguments["issue_key"],
                 recursive=arguments.get("recursive", False),
                 fetch_notion=arguments.get("fetch_notion", True),
+            )
+        elif name == "get_jira_issues_batch":
+            result = state_manager.get_jira_issues_batch(
+                issue_keys=arguments["issue_keys"],
             )
         elif name == "get_jira_graph":
             result = state_manager.get_jira_graph(

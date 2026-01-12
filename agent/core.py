@@ -74,6 +74,7 @@ When a user asks you to:
 - "디렉토리 조회" → use list_directory
 - "프로젝트 스캔" → use scan_projects
 - "Jira 이슈/티켓 조회" → use get_jira_issue (extract issue key like PRDEL-107 from URL or text)
+- "여러 Jira 이슈 한번에 조회" → use get_jira_issues_batch (병렬로 빠르게 조회)
 
 IMPORTANT - When showing Jira issue results:
 - Use the "formatted" field directly - it contains a well-organized markdown summary
