@@ -1061,11 +1061,84 @@ claude -p '{escaped_prompt}' --print
                                 "content": notion_result.get("content", "")[:2000],  # 내용 2000자 제한
                             })
 
+            # 정리된 요약 생성
+            result["formatted"] = self._format_jira_issue(result)
+
             return result
         except requests.exceptions.Timeout:
             return {"error": "Jira API 타임아웃"}
         except Exception as e:
             return {"error": str(e)}
+
+    def _format_jira_issue(self, issue: dict) -> str:
+        """Jira 이슈를 마크다운 형식으로 정리"""
+        lines = []
+
+        # 헤더
+        lines.append(f"## [{issue.get('key')}] {issue.get('summary')}")
+        lines.append("")
+
+        # 메타 정보
+        meta = []
+        if issue.get("status"):
+            meta.append(f"**상태**: {issue['status']}")
+        if issue.get("issue_type"):
+            meta.append(f"**타입**: {issue['issue_type']}")
+        if issue.get("assignee"):
+            meta.append(f"**담당자**: {issue['assignee']}")
+        if issue.get("priority"):
+            meta.append(f"**우선순위**: {issue['priority']}")
+        if meta:
+            lines.append(" | ".join(meta))
+            lines.append("")
+
+        # 상위 이슈
+        if issue.get("parent"):
+            p = issue["parent"]
+            lines.append(f"**상위 이슈**: [{p['key']}] {p.get('summary', '')} ({p.get('status', '')})")
+            lines.append("")
+
+        # Description
+        if issue.get("description"):
+            lines.append("### 설명")
+            lines.append(issue["description"])
+            lines.append("")
+
+        # 하위 이슈
+        children = issue.get("children", []) or issue.get("subtasks", [])
+        if children:
+            lines.append("### 하위 이슈")
+            for c in children:
+                status = c.get("status", "")
+                lines.append(f"- [{c['key']}] {c.get('summary', '')} ({status})")
+            lines.append("")
+
+        # 연결된 이슈
+        if issue.get("linked_issues"):
+            lines.append("### 연결된 이슈")
+            for li in issue["linked_issues"]:
+                lines.append(f"- [{li['key']}] {li.get('summary', '')} - {li.get('link_type', '')}")
+            lines.append("")
+
+        # 댓글 (중요!)
+        if issue.get("comments"):
+            lines.append("### 댓글")
+            for c in issue["comments"]:
+                lines.append(f"**{c.get('author', '알 수 없음')}** ({c.get('created', '')}):")
+                lines.append(c.get("body", ""))
+                lines.append("")
+
+        # 첨부파일
+        if issue.get("attachments"):
+            lines.append("### 첨부파일")
+            for a in issue["attachments"]:
+                lines.append(f"- {a.get('filename', '')} ({a.get('mimeType', '')})")
+            lines.append("")
+
+        # URL
+        lines.append(f"🔗 {issue.get('url', '')}")
+
+        return "\n".join(lines)
 
     def _get_children(self, issue_key: str, auth, headers) -> list:
         """parent 관계의 하위 이슈들을 JQL로 조회"""
