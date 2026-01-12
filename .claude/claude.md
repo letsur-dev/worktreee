@@ -137,7 +137,8 @@ pm-worktree/
 │   └── __init__.py
 │
 └── data/
-    └── projects.yaml       # 프로젝트 상태 저장
+    ├── projects.yaml       # 프로젝트 상태 저장
+    └── jira_graphs/        # Jira 이슈 그래프 HTML 파일
 ```
 
 ## API 엔드포인트
@@ -163,6 +164,28 @@ OpenAI 호환 채팅 API
   "stream": false
 }
 ```
+
+### GET /graphs
+Jira 그래프 목록 페이지
+- 생성된 모든 그래프 HTML 파일 목록
+- 각 항목별 🔄 동기화 버튼 (개별 그래프 재생성)
+
+### GET /graphs/{filename}
+개별 그래프 HTML 파일 서빙
+
+### GET /projects
+PM Agent 로컬 프로젝트 목록 페이지
+- 등록된 프로젝트명, 경로, 머신, 태스크 수 표시
+
+### GET /jira-projects
+Jira 프로젝트 목록 페이지
+- Jira API에서 프로젝트 목록 조회
+- 각 프로젝트 클릭시 Jira로 이동
+
+### POST /api/graphs/sync/{issue_key}
+단일 이슈 그래프 재생성
+- `issue_key`: Jira 이슈 키 (경로 파라미터)
+- Jira에서 최신 데이터로 그래프 HTML 재생성
 
 ## PM Tools
 
@@ -294,6 +317,19 @@ Jira 이슈 트리를 Mermaid 다이어그램으로 시각화
 - `issue_key`: Jira 이슈 키 (필수)
 
 반환: Mermaid 형식의 그래프 코드 (상태별 이모지, 링크 관계 포함)
+
+### get_jira_graph_html
+Jira 이슈 트리를 인터랙티브 HTML 그래프로 시각화 (D3.js)
+- `issue_key`: Jira 이슈 키 (필수)
+- `include_notion`: Notion 링크도 노드로 표시 (기본: true)
+
+기능:
+- D3.js 기반 force-directed 그래프
+- 줌/팬, 드래그 지원
+- 클릭시 Jira/Notion 페이지로 이동
+- **상태/타입별 필터**: 범례 클릭으로 특정 상태나 타입 숨기기/보이기
+- 파일 저장: `data/jira_graphs/{issue_key}_graph.html`
+- `/graphs` 페이지에서 목록 조회 가능
 
 ### analyze_jira_image
 Jira 이슈 첨부 이미지 분석 (Vision API 활용)
@@ -444,6 +480,15 @@ projects:
 - [x] Task에 jira_key, notion_urls 연결
 - [x] get_task_context로 통합 컨텍스트 조회
 
-### Phase 7: 고도화
+### Phase 7: 웹 대시보드 ✅
+- [x] Jira 그래프 HTML 시각화 (get_jira_graph_html)
+- [x] 그래프 필터 기능 (상태/타입별)
+- [x] Notion 노드 통합 표시
+- [x] /graphs 그래프 목록 페이지
+- [x] /projects 프로젝트 목록 페이지
+- [x] /jira-projects Jira 프로젝트 목록 페이지
+- [x] 개별 그래프 동기화 버튼
+
+### Phase 8: 고도화
 - [ ] 스트리밍 응답
 - [ ] 웹훅/알림

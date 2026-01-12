@@ -1580,8 +1580,26 @@ claude -p '{escaped_prompt}' --print
         collect(tree)
         return urls
 
+    def _extract_title_from_notion_url(self, url: str) -> str:
+        """Notion URL에서 페이지 제목 추출 (fallback)"""
+        import re
+        # URL 형식: https://notion.so/workspace/Page-Title-abc123...
+        # 또는: https://notion.so/Page-Title-abc123...
+        match = re.search(r'notion\.(?:so|site)/(?:[^/]+/)?([^?]+)', url)
+        if match:
+            slug = match.group(1)
+            # 마지막 32자리 ID 제거
+            if len(slug) > 32:
+                title_part = slug[:-32].rstrip('-')
+                if title_part:
+                    # 하이픈을 공백으로, URL 디코딩
+                    from urllib.parse import unquote
+                    title = unquote(title_part.replace('-', ' '))
+                    return title.strip()
+        return "Notion 문서"
+
     def _fetch_notion_titles(self, urls: set[str]) -> dict[str, str]:
-        """Notion URL들의 제목을 가져옵니다. (병렬 처리)"""
+        """Notion URL들의 제목을 가져옵니다. (API 실패시 URL에서 추출)"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         if not urls:
@@ -1590,10 +1608,12 @@ claude -p '{escaped_prompt}' --print
         titles = {}
 
         def fetch_title(url: str) -> tuple[str, str]:
+            # 먼저 API로 시도
             result = self.get_notion_page(url)
             if "error" not in result:
                 return url, result.get("title", "Notion 문서")
-            return url, "Notion 문서"
+            # 실패시 URL에서 제목 추출
+            return url, self._extract_title_from_notion_url(url)
 
         try:
             with ThreadPoolExecutor(max_workers=5) as executor:
@@ -1603,9 +1623,11 @@ claude -p '{escaped_prompt}' --print
                         url, title = future.result()
                         titles[url] = title
                     except Exception:
-                        titles[futures[future]] = "Notion 문서"
+                        titles[futures[future]] = self._extract_title_from_notion_url(futures[future])
         except Exception:
-            pass
+            # 전체 실패시 URL에서 추출
+            for url in urls:
+                titles[url] = self._extract_title_from_notion_url(url)
 
         return titles
 
@@ -1689,11 +1711,18 @@ claude -p '{escaped_prompt}' --print
             border-radius: 8px;
             padding: 16px;
             font-size: 12px;
+            max-height: 80vh;
+            overflow-y: auto;
         }}
         .legend h4 {{ margin: 0 0 8px 0; color: #94a3b8; font-size: 10px; text-transform: uppercase; }}
-        .legend-item {{ display: flex; align-items: center; margin: 4px 0; }}
+        .legend-item {{ display: flex; align-items: center; margin: 4px 0; cursor: pointer; user-select: none; }}
+        .legend-item:hover {{ opacity: 0.8; }}
+        .legend-item.disabled {{ opacity: 0.3; }}
+        .legend-item.disabled .legend-color {{ border-color: #475569 !important; }}
         .legend-color {{ width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; border: 2px solid transparent; }}
         .legend-line {{ width: 24px; margin-right: 8px; }}
+        .filter-toggle {{ font-size: 9px; color: #64748b; cursor: pointer; margin-left: 8px; }}
+        .filter-toggle:hover {{ color: #94a3b8; }}
         .controls {{
             position: fixed;
             top: 20px;
@@ -1719,22 +1748,31 @@ claude -p '{escaped_prompt}' --print
     <div id="graph"></div>
     <div class="tooltip" id="tooltip"></div>
     <div class="legend">
-        <h4>Issue Type</h4>
-        <div class="legend-item"><div class="legend-color" style="background:#7c3aed; width:20px; height:20px;"></div>Epic</div>
-        <div class="legend-item"><div class="legend-color" style="background:#2563eb; width:16px; height:16px;"></div>Story</div>
-        <div class="legend-item"><div class="legend-color" style="background:#0891b2; width:14px; height:14px;"></div>Task</div>
-        <div class="legend-item"><div class="legend-color" style="background:#dc2626; width:14px; height:14px;"></div>Bug</div>
-        <div class="legend-item"><div class="legend-color" style="background:#64748b; width:12px; height:12px;"></div>Subtask</div>
-        <h4 style="margin-top: 12px;">Status (Border)</h4>
-        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#22c55e;"></div>Done</div>
-        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#3b82f6;"></div>In Review</div>
-        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#eab308;"></div>In Progress</div>
-        <div class="legend-item"><div class="legend-color" style="background:#334155; border-color:#9ca3af;"></div>To Do</div>
-        <h4 style="margin-top: 12px;">External</h4>
-        <div class="legend-item"><div class="legend-color" style="background:#000; border-color:#fff; width:14px; height:14px;"></div>Notion</div>
+        <h4>Status Filter <span class="filter-toggle" onclick="toggleAllStatus()">[all]</span></h4>
+        <div class="legend-item" data-filter="status" data-value="done" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#334155; border-color:#22c55e;"></div>Done</div>
+        <div class="legend-item" data-filter="status" data-value="review" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#334155; border-color:#3b82f6;"></div>In Review</div>
+        <div class="legend-item" data-filter="status" data-value="progress" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#334155; border-color:#eab308;"></div>In Progress</div>
+        <div class="legend-item" data-filter="status" data-value="todo" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#334155; border-color:#9ca3af;"></div>To Do</div>
+        <h4 style="margin-top: 12px;">Type Filter <span class="filter-toggle" onclick="toggleAllType()">[all]</span></h4>
+        <div class="legend-item" data-filter="type" data-value="epic" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#7c3aed; width:20px; height:20px;"></div>Epic</div>
+        <div class="legend-item" data-filter="type" data-value="story" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#2563eb; width:16px; height:16px;"></div>Story</div>
+        <div class="legend-item" data-filter="type" data-value="task" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#0891b2; width:14px; height:14px;"></div>Task</div>
+        <div class="legend-item" data-filter="type" data-value="bug" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#dc2626; width:14px; height:14px;"></div>Bug</div>
+        <div class="legend-item" data-filter="type" data-value="subtask" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#64748b; width:12px; height:12px;"></div>Subtask</div>
+        <div class="legend-item" data-filter="type" data-value="notion" onclick="toggleFilter(this)">
+            <div class="legend-color" style="background:#000; border-color:#fff; width:14px; height:14px;"></div>Notion</div>
         <h4 style="margin-top: 12px;">Links</h4>
-        <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/></svg>Parent → Child</div>
-        <div class="legend-item"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#a855f7" stroke-width="2" stroke-dasharray="3,3"/></svg>Issue Link</div>
+        <div class="legend-item" style="cursor:default;"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/></svg>Parent → Child</div>
+        <div class="legend-item" style="cursor:default;"><svg class="legend-line" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#a855f7" stroke-width="2" stroke-dasharray="3,3"/></svg>Issue Link</div>
     </div>
     <div class="controls">
         <button onclick="zoomIn()">+ Zoom In</button>
@@ -1905,6 +1943,79 @@ claude -p '{escaped_prompt}' --print
             d.fx = null;
             d.fy = null;
         }}
+
+        // Filter state
+        const filters = {{
+            status: {{ done: true, review: true, progress: true, todo: true }},
+            type: {{ epic: true, story: true, task: true, bug: true, subtask: true, notion: true }}
+        }};
+
+        function getStatusKey(status) {{
+            if (!status) return 'todo';
+            const s = status.toLowerCase();
+            if (s.includes('done') || s.includes('complete') || s.includes('deploy')) return 'done';
+            if (s.includes('review')) return 'review';
+            if (s.includes('progress')) return 'progress';
+            return 'todo';
+        }}
+
+        function getTypeKey(type) {{
+            if (!type) return 'task';
+            const t = type.toLowerCase();
+            if (t === 'notion') return 'notion';
+            if (t.includes('epic') || t.includes('project')) return 'epic';
+            if (t.includes('story') || t.includes('scope')) return 'story';
+            if (t.includes('bug')) return 'bug';
+            if (t.includes('sub') || t.includes('하위')) return 'subtask';
+            return 'task';
+        }}
+
+        function isNodeVisible(d) {{
+            const statusKey = getStatusKey(d.status);
+            const typeKey = getTypeKey(d.type);
+            return filters.status[statusKey] && filters.type[typeKey];
+        }}
+
+        function applyFilters() {{
+            node.style("opacity", d => isNodeVisible(d) ? 1 : 0.1);
+            node.style("pointer-events", d => isNodeVisible(d) ? "all" : "none");
+            link.style("opacity", d => {{
+                const sourceVisible = isNodeVisible(d.source);
+                const targetVisible = isNodeVisible(d.target);
+                return (sourceVisible && targetVisible) ? 0.7 : 0.05;
+            }});
+            linkLabel.style("opacity", d => {{
+                const sourceVisible = isNodeVisible(d.source);
+                const targetVisible = isNodeVisible(d.target);
+                return (sourceVisible && targetVisible) ? 1 : 0.05;
+            }});
+        }}
+
+        window.toggleFilter = function(el) {{
+            const filterType = el.dataset.filter;
+            const value = el.dataset.value;
+            filters[filterType][value] = !filters[filterType][value];
+            el.classList.toggle("disabled", !filters[filterType][value]);
+            applyFilters();
+        }};
+
+        window.toggleAllStatus = function() {{
+            const allOn = Object.values(filters.status).every(v => v);
+            Object.keys(filters.status).forEach(k => filters.status[k] = !allOn);
+            document.querySelectorAll('[data-filter="status"]').forEach(el => {{
+                el.classList.toggle("disabled", allOn);
+            }});
+            applyFilters();
+        }};
+
+        window.toggleAllType = function() {{
+            const allOn = Object.values(filters.type).every(v => v);
+            Object.keys(filters.type).forEach(k => filters.type[k] = !allOn);
+            document.querySelectorAll('[data-filter="type"]').forEach(el => {{
+                el.classList.toggle("disabled", allOn);
+            }});
+            applyFilters();
+        }};
 
         // Initial zoom to fit
         setTimeout(() => {{
