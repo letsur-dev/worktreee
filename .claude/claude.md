@@ -80,6 +80,7 @@ OpenWebUI / Client
 │  │   - list_directory            │  │
 │  │   - scan_projects             │  │
 │  │   - get_jira_issue            │  │
+│  │   - get_jira_issues_batch     │  │
 │  │   - get_jira_graph            │  │
 │  │   - analyze_jira_image        │  │
 │  │   - sync_task_status          │  │
@@ -280,7 +281,13 @@ Jira 이슈 정보 조회
 - `recursive`: 하위의 하위, 링크된 이슈까지 전체 트리 조회 (기본: false)
 - `fetch_notion`: Notion 링크 발견시 자동 조회 (기본: true)
 
-반환: key, summary, description, status, assignee, comments, attachments, children, linked_issues, notion_pages
+반환: key, summary, description, status, assignee, comments, attachments, children, linked_issues, notion_pages, **formatted** (마크다운 요약)
+
+### get_jira_issues_batch
+여러 Jira 이슈를 병렬로 빠르게 조회
+- `issue_keys`: Jira 이슈 키 목록 (필수, 예: ["PRDEL-107", "PRDEL-108"])
+
+반환: issues (키별 결과), formatted (전체 마크다운 요약)
 
 ### get_jira_graph
 Jira 이슈 트리를 Mermaid 다이어그램으로 시각화
