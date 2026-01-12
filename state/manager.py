@@ -843,19 +843,20 @@ claude -p '{escaped_prompt}' --print
         except Exception as e:
             return {"error": str(e)}
 
-    def get_jira_issue(self, issue_key: str) -> dict:
-        """Jira 이슈 정보를 조회합니다."""
+    def get_jira_issue(self, issue_key: str, include_children: bool = True) -> dict:
+        """Jira 이슈 정보를 조회합니다. 하위 이슈와 연결된 이슈도 함께 조회."""
         import requests
         from requests.auth import HTTPBasicAuth
 
         if not settings.jira_url or not settings.jira_email or not settings.jira_api_token:
             return {"error": "Jira API 설정이 없습니다. JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN을 설정해주세요."}
 
-        url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
         auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
         headers = {"Accept": "application/json"}
 
         try:
+            # 메인 이슈 조회
+            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
             response = requests.get(url, headers=headers, auth=auth, timeout=30)
             if response.status_code == 404:
                 return {"error": f"이슈 '{issue_key}'를 찾을 수 없습니다."}
@@ -864,9 +865,10 @@ claude -p '{escaped_prompt}' --print
 
             data = response.json()
             fields = data.get("fields", {})
+            issue_type = fields.get("issuetype", {}).get("name") if fields.get("issuetype") else None
 
-            # 필요한 정보만 추출
-            return {
+            # 기본 정보 추출
+            result = {
                 "key": data.get("key"),
                 "summary": fields.get("summary"),
                 "description": self._extract_jira_description(fields.get("description")),
@@ -874,16 +876,106 @@ claude -p '{escaped_prompt}' --print
                 "assignee": fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
                 "reporter": fields.get("reporter", {}).get("displayName") if fields.get("reporter") else None,
                 "priority": fields.get("priority", {}).get("name") if fields.get("priority") else None,
-                "issue_type": fields.get("issuetype", {}).get("name") if fields.get("issuetype") else None,
+                "issue_type": issue_type,
                 "project": fields.get("project", {}).get("name") if fields.get("project") else None,
                 "created": fields.get("created"),
                 "updated": fields.get("updated"),
                 "url": f"{settings.jira_url}/browse/{issue_key}",
             }
+
+            if not include_children:
+                return result
+
+            # Subtasks 조회
+            subtasks = fields.get("subtasks", [])
+            if subtasks:
+                result["subtasks"] = [
+                    {
+                        "key": st.get("key"),
+                        "summary": st.get("fields", {}).get("summary"),
+                        "status": st.get("fields", {}).get("status", {}).get("name"),
+                        "issue_type": st.get("fields", {}).get("issuetype", {}).get("name"),
+                    }
+                    for st in subtasks
+                ]
+
+            # Linked Issues 조회
+            issuelinks = fields.get("issuelinks", [])
+            if issuelinks:
+                linked = []
+                for link in issuelinks:
+                    link_type = link.get("type", {}).get("name", "관련")
+                    if "outwardIssue" in link:
+                        issue = link["outwardIssue"]
+                        direction = link.get("type", {}).get("outward", "links to")
+                    elif "inwardIssue" in link:
+                        issue = link["inwardIssue"]
+                        direction = link.get("type", {}).get("inward", "linked from")
+                    else:
+                        continue
+                    linked.append({
+                        "key": issue.get("key"),
+                        "summary": issue.get("fields", {}).get("summary"),
+                        "status": issue.get("fields", {}).get("status", {}).get("name"),
+                        "link_type": f"{link_type} ({direction})",
+                    })
+                if linked:
+                    result["linked_issues"] = linked
+
+            # Epic이면 하위 스토리 조회 (JQL 검색)
+            if issue_type and issue_type.lower() == "epic":
+                epic_children = self._get_epic_children(issue_key, auth, headers)
+                if epic_children:
+                    result["epic_children"] = epic_children
+
+            # Parent 정보 (이 이슈가 하위 이슈인 경우)
+            parent = fields.get("parent")
+            if parent:
+                result["parent"] = {
+                    "key": parent.get("key"),
+                    "summary": parent.get("fields", {}).get("summary"),
+                    "status": parent.get("fields", {}).get("status", {}).get("name"),
+                    "issue_type": parent.get("fields", {}).get("issuetype", {}).get("name"),
+                }
+
+            return result
         except requests.exceptions.Timeout:
             return {"error": "Jira API 타임아웃"}
         except Exception as e:
             return {"error": str(e)}
+
+    def _get_epic_children(self, epic_key: str, auth, headers) -> list:
+        """Epic의 하위 이슈들을 JQL로 조회"""
+        import requests
+
+        # Jira Cloud에서 Epic Link 필드명
+        jql = f'"Epic Link" = {epic_key} OR parent = {epic_key}'
+        url = f"{settings.jira_url}/rest/api/3/search"
+        params = {
+            "jql": jql,
+            "fields": "key,summary,status,issuetype,assignee",
+            "maxResults": 50,
+        }
+
+        try:
+            response = requests.get(url, headers=headers, auth=auth, params=params, timeout=30)
+            if response.status_code != 200:
+                return []
+
+            data = response.json()
+            children = []
+            for issue in data.get("issues", []):
+                fields = issue.get("fields", {})
+                children.append({
+                    "key": issue.get("key"),
+                    "summary": fields.get("summary"),
+                    "status": fields.get("status", {}).get("name"),
+                    "issue_type": fields.get("issuetype", {}).get("name"),
+                    "assignee": fields.get("assignee", {}).get("displayName") if fields.get("assignee") else None,
+                })
+            return children
+        except Exception:
+            return []
 
     def _extract_jira_description(self, description: dict | None) -> str | None:
         """Jira ADF (Atlassian Document Format) 형식의 description을 텍스트로 변환"""
