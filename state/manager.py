@@ -935,7 +935,7 @@ claude -p '{escaped_prompt}' --print
 
         try:
             # 메인 이슈 조회 (댓글, 첨부파일 포함)
-            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}?fields=*all,-worklog"
+            url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}?fields=*all,-worklog&expand=renderedFields,comment"
             response = requests.get(url, headers=headers, auth=auth, timeout=30)
             if response.status_code == 404:
                 return {"error": f"이슈 '{issue_key}'를 찾을 수 없습니다."}
