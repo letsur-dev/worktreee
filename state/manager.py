@@ -36,7 +36,7 @@ class StateManager:
         with open(self.projects_file, "w", encoding="utf-8") as f:
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    def add_project(self, name: str, repo_path: str, machine: str = "local") -> dict:
+    def add_project(self, name: str, repo_path: str, machine: str = "local", title: str | None = None) -> dict:
         data = self._load()
         if name in data["projects"]:
             return {"error": f"프로젝트 '{name}'이(가) 이미 존재합니다."}
@@ -44,6 +44,7 @@ class StateManager:
         data["projects"][name] = {
             "repo_path": repo_path,
             "machine": machine,
+            "title": title or "",
             "created": datetime.now().isoformat(),
             "tasks": {},
         }
@@ -59,6 +60,7 @@ class StateManager:
                 continue
             projects.append({
                 "name": name,
+                "title": info.get("title", ""),
                 "repo_path": info["repo_path"],
                 "machine": info["machine"],
                 "task_count": len(info.get("tasks", {})),
@@ -103,7 +105,7 @@ class StateManager:
         self._save(data)
         return {"success": True, "restored": name}
 
-    def update_project(self, name: str, repo_path: str | None = None, machine: str | None = None) -> dict:
+    def update_project(self, name: str, repo_path: str | None = None, machine: str | None = None, title: str | None = None) -> dict:
         """프로젝트 정보를 수정합니다."""
         data = self._load()
         if name not in data["projects"]:
@@ -117,9 +119,12 @@ class StateManager:
         if machine:
             proj["machine"] = machine
             updated.append("machine")
+        if title is not None:
+            proj["title"] = title
+            updated.append("title")
 
         if not updated:
-            return {"error": "수정할 항목이 없습니다. repo_path 또는 machine을 지정해주세요."}
+            return {"error": "수정할 항목이 없습니다. repo_path, machine, 또는 title을 지정해주세요."}
 
         self._save(data)
         return {"success": True, "project": name, "updated": updated}

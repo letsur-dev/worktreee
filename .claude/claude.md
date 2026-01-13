@@ -168,14 +168,15 @@ OpenAI 호환 채팅 API
 ### GET /graphs
 Jira 그래프 목록 페이지
 - 생성된 모든 그래프 HTML 파일 목록
-- 각 항목별 🔄 동기화 버튼 (개별 그래프 재생성)
+- Jira 이슈 제목 자동 표시 (JQL 배치 조회)
+- 각 항목별 Sync 버튼 (개별 그래프 재생성)
 
 ### GET /graphs/{filename}
 개별 그래프 HTML 파일 서빙
 
 ### GET /projects
 PM Agent 로컬 프로젝트 목록 페이지
-- 등록된 프로젝트명, 경로, 머신, 태스크 수 표시
+- 등록된 프로젝트명, 표시명(title), 경로, 머신, 태스크 수 표시
 
 ### GET /jira-projects
 Jira 프로젝트 목록 페이지
@@ -194,6 +195,7 @@ Jira 프로젝트 목록 페이지
 - `name`: 프로젝트 이름 (필수)
 - `repo_path`: Git 레포 경로 (필수)
 - `machine`: 실행 머신 - local/mac/nuc (기본: local)
+- `title`: 프로젝트 표시명 (선택)
 
 ### list_projects
 등록된 프로젝트 목록 조회
@@ -213,6 +215,7 @@ Jira 프로젝트 목록 페이지
 - `name`: 프로젝트 이름 (필수)
 - `repo_path`: 새 레포 경로 (선택)
 - `machine`: 새 머신 (선택)
+- `title`: 새 표시명 (선택)
 
 ### get_status
 프로젝트/태스크 현황 조회
@@ -413,6 +416,7 @@ projects:
   my-project:
     repo_path: /home/user/projects/my-project
     machine: nuc
+    title: My Project
     created: '2025-12-31T00:00:00'
     tasks:
       PRDEL-107-invite:

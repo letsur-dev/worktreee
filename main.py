@@ -41,16 +41,39 @@ async def graph_redirect():
 async def list_graphs():
     """생성된 Jira 그래프 목록"""
     from fastapi.responses import HTMLResponse
+    from datetime import datetime
+    import requests
+    from requests.auth import HTTPBasicAuth
 
     files = sorted(graphs_dir.glob("*.html"), key=lambda f: f.stat().st_mtime, reverse=True)
 
+    # Jira에서 이슈 제목 가져오기
+    issue_keys = [f.stem.replace("_graph", "") for f in files]
+    titles = {}
+    if issue_keys:
+        try:
+            jql = f"key in ({','.join(issue_keys)})"
+            resp = requests.post(
+                f"{settings.jira_url}/rest/api/3/search/jql",
+                auth=HTTPBasicAuth(settings.jira_email, settings.jira_api_token),
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                json={"jql": jql, "fields": ["summary"], "maxResults": 100},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                for issue in resp.json().get("issues", []):
+                    titles[issue["key"]] = issue["fields"]["summary"]
+        except Exception:
+            pass  # 실패해도 키만 표시
+
     items = []
     for f in files:
-        name = f.stem.replace("_graph", "")
+        key = f.stem.replace("_graph", "")
+        title = titles.get(key, "")
         mtime = f.stat().st_mtime
-        from datetime import datetime
         date_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-        items.append(f'<li><a href="/graphs/{f.name}">{name}</a> <span style="color:#666">({date_str})</span> <button class="item-sync-btn" onclick="syncOne(\'{name}\')">🔄</button></li>')
+        display = f"{key}: {title}" if title else key
+        items.append(f'<li><a href="/graphs/{f.name}">{display}</a> <span style="color:#666">({date_str})</span> <button class="item-sync-btn" onclick="syncOne(\'{key}\')">Sync</button></li>')
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -95,20 +118,20 @@ async def list_graphs():
             const btn = event.target;
             const originalText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = '⏳';
+            btn.textContent = '...';
 
             try {{
                 const resp = await fetch(`/api/graphs/sync/${{issueKey}}`, {{ method: 'POST' }});
                 const data = await resp.json();
                 if (data.success) {{
-                    btn.textContent = '✅';
+                    btn.textContent = 'Done';
                     setTimeout(() => location.reload(), 500);
                 }} else {{
-                    btn.textContent = '❌';
+                    btn.textContent = 'Error';
                     alert('Sync failed: ' + data.error);
                 }}
             }} catch (e) {{
-                btn.textContent = '❌';
+                btn.textContent = 'Error';
                 alert('Sync failed: ' + e.message);
             }} finally {{
                 setTimeout(() => {{
@@ -138,12 +161,14 @@ async def list_local_projects():
     items = []
     for p in projects:
         name = p.get('name', '')
+        title = p.get('title', '')
         repo_path = p.get('repo_path', '')
         machine = p.get('machine', '')
         task_count = p.get('task_count', 0)
         items.append(f'''
             <tr>
                 <td><strong>{name}</strong></td>
+                <td>{title}</td>
                 <td><code>{repo_path}</code></td>
                 <td>{machine}</td>
                 <td>{task_count}</td>
@@ -177,7 +202,7 @@ async def list_local_projects():
     <h1>PM Agent Projects</h1>
     {f'''<table>
         <thead>
-            <tr><th>Name</th><th>Path</th><th>Machine</th><th>Tasks</th></tr>
+            <tr><th>Name</th><th>Title</th><th>Path</th><th>Machine</th><th>Tasks</th></tr>
         </thead>
         <tbody>{''.join(items)}</tbody>
     </table>''' if items else '<p class="empty">No projects registered.</p>'}
