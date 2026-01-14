@@ -102,6 +102,51 @@ async def list_graphs():
         }}
         .item-sync-btn:hover {{ background: #334155; color: #e2e8f0; }}
         .item-sync-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+        .sync-modal {{
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }}
+        .sync-modal.active {{ display: flex; }}
+        .sync-modal-content {{
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 24px;
+            min-width: 400px;
+            max-width: 600px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }}
+        .sync-modal h3 {{
+            color: #60a5fa;
+            margin: 0 0 16px 0;
+            font-size: 18px;
+        }}
+        .sync-log {{
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #94a3b8;
+        }}
+        .sync-log .fetching {{ color: #fbbf24; }}
+        .sync-log .fetched {{ color: #34d399; }}
+        .sync-log .error {{ color: #f87171; }}
+        .sync-log .done {{ color: #60a5fa; font-weight: bold; }}
+        .sync-close {{
+            margin-top: 16px;
+            background: #334155;
+            border: none;
+            color: #e2e8f0;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }}
+        .sync-close:hover {{ background: #475569; }}
     </style>
 </head>
 <body>
@@ -113,32 +158,79 @@ async def list_graphs():
     </div>
     <h1>Jira Issue Graphs</h1>
     {'<ul>' + ''.join(items) + '</ul>' if items else '<p class="empty">No graphs yet. Use get_jira_graph_html to generate.</p>'}
+
+    <div id="syncModal" class="sync-modal">
+        <div class="sync-modal-content">
+            <h3 id="syncTitle">Syncing...</h3>
+            <div id="syncLog" class="sync-log"></div>
+            <button id="syncClose" class="sync-close" style="display:none" onclick="closeModal()">Close</button>
+        </div>
+    </div>
+
     <script>
-        async function syncOne(issueKey) {{
+        const modal = document.getElementById('syncModal');
+        const syncLog = document.getElementById('syncLog');
+        const syncTitle = document.getElementById('syncTitle');
+        const syncClose = document.getElementById('syncClose');
+        let fetchedCount = 0;
+
+        function closeModal() {{
+            modal.classList.remove('active');
+            location.reload();
+        }}
+
+        function syncOne(issueKey) {{
             const btn = event.target;
-            const originalText = btn.textContent;
             btn.disabled = true;
             btn.textContent = '...';
 
-            try {{
-                const resp = await fetch(`/api/graphs/sync/${{issueKey}}`, {{ method: 'POST' }});
-                const data = await resp.json();
-                if (data.success) {{
+            // 모달 열기
+            syncLog.innerHTML = '';
+            syncTitle.textContent = `Syncing ${{issueKey}}...`;
+            syncClose.style.display = 'none';
+            fetchedCount = 0;
+            modal.classList.add('active');
+
+            // SSE 연결
+            const es = new EventSource(`/api/graphs/sync-stream/${{issueKey}}`);
+
+            es.onmessage = (e) => {{
+                const data = JSON.parse(e.data);
+
+                if (data.event === 'fetching') {{
+                    syncLog.innerHTML += `<div class="fetching">  Fetching ${{data.key}}...</div>`;
+                }} else if (data.event === 'fetched') {{
+                    fetchedCount++;
+                    const detail = data.detail ? `: ${{data.detail.substring(0, 40)}}` : '';
+                    syncLog.innerHTML += `<div class="fetched">  ${{data.key}}${{detail}}</div>`;
+                    syncTitle.textContent = `Syncing ${{issueKey}}... (${{fetchedCount}} issues)`;
+                }} else if (data.event === 'done') {{
+                    syncLog.innerHTML += `<div class="done">Sync complete! ${{fetchedCount}} issues synced.</div>`;
+                    syncTitle.textContent = `Sync Complete`;
+                    syncClose.style.display = 'block';
                     btn.textContent = 'Done';
-                    setTimeout(() => location.reload(), 500);
-                }} else {{
-                    btn.textContent = 'Error';
-                    alert('Sync failed: ' + data.error);
-                }}
-            }} catch (e) {{
-                btn.textContent = 'Error';
-                alert('Sync failed: ' + e.message);
-            }} finally {{
-                setTimeout(() => {{
                     btn.disabled = false;
-                    btn.textContent = originalText;
-                }}, 2000);
-            }}
+                    es.close();
+                }} else if (data.event === 'error') {{
+                    syncLog.innerHTML += `<div class="error">Error: ${{data.detail}}</div>`;
+                    syncTitle.textContent = `Sync Failed`;
+                    syncClose.style.display = 'block';
+                    btn.textContent = 'Error';
+                    btn.disabled = false;
+                    es.close();
+                }}
+
+                // 스크롤 맨 아래로
+                syncLog.scrollTop = syncLog.scrollHeight;
+            }};
+
+            es.onerror = () => {{
+                syncLog.innerHTML += `<div class="error">Connection lost</div>`;
+                syncClose.style.display = 'block';
+                btn.textContent = 'Sync';
+                btn.disabled = false;
+                es.close();
+            }};
         }}
     </script>
 </body>
@@ -286,6 +378,54 @@ async def list_jira_projects():
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+@app.get("/api/graphs/sync-stream/{issue_key}")
+async def sync_graph_stream(issue_key: str):
+    """단일 이슈 그래프 재생성 (SSE 스트림)"""
+    from fastapi.responses import StreamingResponse
+    from state.manager import StateManager
+    import json as json_module
+    import queue
+    import threading
+
+    progress_queue = queue.Queue()
+
+    def on_progress(event_type: str, key: str, detail: str | None):
+        progress_queue.put({"event": event_type, "key": key, "detail": detail})
+
+    def generate():
+        sm = StateManager()
+
+        # 별도 스레드에서 sync 실행
+        result_holder = [None]
+        def run_sync():
+            result_holder[0] = sm.get_jira_graph_html(issue_key, include_notion=True, on_progress=on_progress)
+            progress_queue.put(None)  # 종료 신호
+
+        thread = threading.Thread(target=run_sync)
+        thread.start()
+
+        # 진행 상태 스트리밍
+        while True:
+            try:
+                item = progress_queue.get(timeout=60)
+                if item is None:
+                    break
+                yield f"data: {json_module.dumps(item, ensure_ascii=False)}\n\n"
+            except queue.Empty:
+                break
+
+        thread.join()
+
+        # 최종 결과
+        result = result_holder[0]
+        if result and ("error" in result or "_error" in result):
+            yield f"data: {json_module.dumps({'event': 'error', 'detail': result.get('error') or result.get('_error')}, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json_module.dumps({'event': 'done', 'key': issue_key}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @app.post("/api/graphs/sync/{issue_key}")

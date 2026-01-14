@@ -188,6 +188,12 @@ Jira 프로젝트 목록 페이지
 - `issue_key`: Jira 이슈 키 (경로 파라미터)
 - Jira에서 최신 데이터로 그래프 HTML 재생성
 
+### GET /api/graphs/sync-stream/{issue_key}
+단일 이슈 그래프 재생성 (SSE 실시간 스트림)
+- `issue_key`: Jira 이슈 키 (경로 파라미터)
+- Server-Sent Events로 진행 상태 실시간 전송
+- 이벤트 타입: `fetching` (조회 시작), `fetched` (조회 완료), `done` (완료), `error` (에러)
+
 ## PM Tools
 
 ### add_project
@@ -224,11 +230,20 @@ Jira 프로젝트 목록 페이지
 ### create_task
 프로젝트에 태스크 생성 (워크트리 + Claude 세션 자동 시작)
 - `project`: 프로젝트 이름 (필수)
-- `task_name`: 태스크 이름 - 워크트리 폴더명 (필수, 예: PRDEL-107-invite-feature)
-- `branch`: Git 브랜치명 (선택, 예: feature/PRDEL-107/invite-feature, 생략시 task_name 사용)
+- `task_name`: 태스크 이름 - 워크트리 폴더명 (필수)
+- `branch`: Git 브랜치명 (선택, 생략시 task_name 사용)
 - `context`: 태스크 컨텍스트 (필수)
 - `jira_key`: 연결할 Jira 이슈 키 (선택, 예: PRDEL-107)
 - `notion_urls`: 연결할 Notion 문서 URL 목록 (선택)
+
+**브랜치 네이밍 규칙 (필수):**
+- prefix 필수: `feat/`, `fix/`, `chore/`, `refactor/`, `docs/`, `test/`
+- 예시:
+  - `chore/untitledui-lint-fix` (린트/빌드 수정)
+  - `feat/user-invite` (새 기능)
+  - `fix/login-redirect` (버그 수정)
+  - `feat/PRDEL-107/invite-feature` (Jira 연결)
+- 금지: `untitledui-lint-build-fix` (prefix 없음 ❌)
 
 동작:
 1. 태스크 등록 → 2. 워크트리 생성 → 3. Claude 세션 자동 시작
@@ -331,6 +346,8 @@ Jira 이슈 트리를 인터랙티브 HTML 그래프로 시각화 (D3.js)
 - 줌/팬, 드래그 지원
 - 클릭시 Jira/Notion 페이지로 이동
 - **상태/타입별 필터**: 범례 클릭으로 특정 상태나 타입 숨기기/보이기
+- **병렬 조회**: ThreadPoolExecutor로 하위 이슈 동시 조회 (10개씩)
+- **실시간 진행 표시**: `/graphs` 페이지에서 Sync 클릭시 모달로 진행 상태 표시
 - 파일 저장: `data/jira_graphs/{issue_key}_graph.html`
 - `/graphs` 페이지에서 목록 조회 가능
 
@@ -492,7 +509,9 @@ projects:
 - [x] /projects 프로젝트 목록 페이지
 - [x] /jira-projects Jira 프로젝트 목록 페이지
 - [x] 개별 그래프 동기화 버튼
+- [x] Sync 실시간 진행 표시 (SSE 스트림 + 모달)
+- [x] Jira 이슈 병렬 조회 (ThreadPoolExecutor)
 
 ### Phase 8: 고도화
-- [ ] 스트리밍 응답
+- [ ] 채팅 스트리밍 응답
 - [ ] 웹훅/알림

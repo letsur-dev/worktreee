@@ -1259,15 +1259,25 @@ claude -p '{escaped_prompt}' --print
         except Exception:
             return []
 
-    def _get_jira_issue_tree(self, issue_key: str, auth, headers, visited: set, max_depth: int, depth: int = 0) -> dict:
-        """재귀적으로 이슈 트리 전체를 조회 (하위의 하위, 링크된 이슈 포함)"""
+    def _get_jira_issue_tree(self, issue_key: str, auth, headers, visited: set, max_depth: int, depth: int = 0, lock=None, on_progress=None) -> dict:
+        """재귀적으로 이슈 트리 전체를 조회 (하위의 하위, 링크된 이슈 포함) - 병렬 처리"""
         import requests
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
 
-        # 무한 루프 방지
-        if issue_key in visited or depth > max_depth:
-            return {"key": issue_key, "_skipped": True, "_reason": "already visited" if issue_key in visited else "max depth"}
+        # Lock 초기화 (최초 호출시)
+        if lock is None:
+            lock = threading.Lock()
 
-        visited.add(issue_key)
+        # 무한 루프 방지 (thread-safe)
+        with lock:
+            if issue_key in visited or depth > max_depth:
+                return {"key": issue_key, "_skipped": True, "_reason": "already visited" if issue_key in visited else "max depth"}
+            visited.add(issue_key)
+
+        # Progress 콜백 호출 - 조회 시작
+        if on_progress:
+            on_progress("fetching", issue_key, None)
 
         # 이슈 조회
         url = f"{settings.jira_url}/rest/api/3/issue/{issue_key}"
@@ -1297,50 +1307,87 @@ claude -p '{escaped_prompt}' --print
             if notion_urls:
                 result["notion_urls"] = notion_urls
 
-            # Subtasks 재귀 조회
-            subtasks = fields.get("subtasks", [])
-            if subtasks:
-                result["subtasks"] = []
-                for st in subtasks:
-                    st_key = st.get("key")
-                    if st_key and st_key not in visited:
-                        child_result = self._get_jira_issue_tree(st_key, auth, headers, visited, max_depth, depth + 1)
-                        result["subtasks"].append(child_result)
+            # Progress 콜백 호출 - 조회 완료
+            if on_progress:
+                on_progress("fetched", issue_key, result.get("summary"))
 
-            # Children 재귀 조회 (parent 관계)
+            # 병렬 조회할 작업 수집
+            tasks = []  # (type, key, extra_info)
+
+            # Subtasks
+            subtasks = fields.get("subtasks", [])
+            for st in subtasks:
+                st_key = st.get("key")
+                if st_key:
+                    with lock:
+                        if st_key not in visited:
+                            visited.add(st_key)
+                            tasks.append(("subtask", st_key, None))
+
+            # Children (parent 관계) - subtasks 없을 때만
+            children_keys = []
             if not subtasks:
                 children_keys = self._get_children(issue_key, auth, headers)
-                if children_keys:
-                    result["children"] = []
-                    for child in children_keys:
-                        child_key = child.get("key")
-                        if child_key and child_key not in visited:
-                            child_result = self._get_jira_issue_tree(child_key, auth, headers, visited, max_depth, depth + 1)
-                            result["children"].append(child_result)
+                for child in children_keys:
+                    child_key = child.get("key")
+                    if child_key:
+                        with lock:
+                            if child_key not in visited:
+                                visited.add(child_key)
+                                tasks.append(("child", child_key, None))
 
-            # Linked Issues 재귀 조회
+            # Linked Issues
             issuelinks = fields.get("issuelinks", [])
-            if issuelinks:
-                result["linked_issues"] = []
-                for link in issuelinks:
-                    link_type = link.get("type", {}).get("name", "관련")
-                    if "outwardIssue" in link:
-                        issue = link["outwardIssue"]
-                        direction = link.get("type", {}).get("outward", "links to")
-                    elif "inwardIssue" in link:
-                        issue = link["inwardIssue"]
-                        direction = link.get("type", {}).get("inward", "linked from")
-                    else:
-                        continue
+            for link in issuelinks:
+                link_type = link.get("type", {}).get("name", "관련")
+                if "outwardIssue" in link:
+                    issue = link["outwardIssue"]
+                    direction = link.get("type", {}).get("outward", "links to")
+                elif "inwardIssue" in link:
+                    issue = link["inwardIssue"]
+                    direction = link.get("type", {}).get("inward", "linked from")
+                else:
+                    continue
 
-                    linked_key = issue.get("key")
-                    if linked_key and linked_key not in visited:
-                        linked_result = self._get_jira_issue_tree(linked_key, auth, headers, visited, max_depth, depth + 1)
-                        linked_result["_link_type"] = f"{link_type} ({direction})"
-                        result["linked_issues"].append(linked_result)
+                linked_key = issue.get("key")
+                if linked_key:
+                    with lock:
+                        if linked_key not in visited:
+                            visited.add(linked_key)
+                            tasks.append(("linked", linked_key, f"{link_type} ({direction})"))
 
-                if not result["linked_issues"]:
-                    del result["linked_issues"]
+            # 병렬로 하위 이슈들 조회
+            if tasks:
+                subtask_results = []
+                child_results = []
+                linked_results = []
+
+                def fetch_child(task_info):
+                    task_type, key, extra = task_info
+                    child_result = self._get_jira_issue_tree(key, auth, headers, visited, max_depth, depth + 1, lock, on_progress)
+                    return (task_type, child_result, extra)
+
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {executor.submit(fetch_child, t): t for t in tasks}
+                    for future in as_completed(futures):
+                        try:
+                            task_type, child_result, extra = future.result()
+                            if task_type == "subtask":
+                                subtask_results.append(child_result)
+                            elif task_type == "child":
+                                child_results.append(child_result)
+                            elif task_type == "linked":
+                                child_result["_link_type"] = extra
+                                linked_results.append(child_result)
+                        except Exception:
+                            pass
+
+                if subtask_results:
+                    result["subtasks"] = subtask_results
+                if child_results:
+                    result["children"] = child_results
+                if linked_results:
+                    result["linked_issues"] = linked_results
 
             return result
         except Exception as e:
@@ -1636,13 +1683,14 @@ claude -p '{escaped_prompt}' --print
 
         return titles
 
-    def get_jira_graph_html(self, issue_key: str, output_path: str | None = None, include_notion: bool = True) -> dict:
+    def get_jira_graph_html(self, issue_key: str, output_path: str | None = None, include_notion: bool = True, on_progress=None) -> dict:
         """Jira 이슈 그래프를 D3.js 인터랙티브 HTML로 생성
 
         Args:
             issue_key: Jira 이슈 키
             output_path: HTML 파일 저장 경로 (없으면 자동 생성)
             include_notion: Notion 페이지를 그래프에 포함할지 여부
+            on_progress: 진행 상태 콜백 (event_type, issue_key, detail)
         """
         import requests
         from requests.auth import HTTPBasicAuth
@@ -1654,7 +1702,7 @@ claude -p '{escaped_prompt}' --print
         auth = HTTPBasicAuth(settings.jira_email, settings.jira_api_token)
         headers = {"Accept": "application/json"}
 
-        tree = self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5)
+        tree = self._get_jira_issue_tree(issue_key, auth, headers, visited=set(), max_depth=5, on_progress=on_progress)
         if "error" in tree or "_error" in tree:
             return tree
 
