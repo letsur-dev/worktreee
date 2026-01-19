@@ -101,9 +101,10 @@ OpenWebUI / Client
 
 | 구성요소 | 기술 |
 |---------|------|
-| 언어 | Python 3.11+ |
-| 프레임워크 | FastAPI |
-| 패키지 관리 | uv |
+| 모노레포 | Turborepo + pnpm |
+| 백엔드 | Python 3.11+, FastAPI, uv |
+| 프론트엔드 | Next.js 15, React 19, Tailwind CSS 4 |
+| 드래그앤드롭 | @dnd-kit/core, @dnd-kit/sortable |
 | LLM 호출 | openai 라이브러리 |
 | 상태 저장 | YAML 파일 |
 | 컨테이너 | Docker |
@@ -112,38 +113,51 @@ OpenWebUI / Client
 
 ```
 pm-worktree/
-├── main.py                 # FastAPI 앱 진입점
-├── config.py               # 설정 (환경변수)
-├── pyproject.toml          # 의존성 정의
-├── Dockerfile
+├── apps/
+│   ├── api/                    # FastAPI 백엔드
+│   │   ├── main.py             # FastAPI 앱 진입점
+│   │   ├── config.py           # 설정 (환경변수)
+│   │   ├── pyproject.toml      # Python 의존성
+│   │   ├── Dockerfile
+│   │   ├── api/
+│   │   │   └── openai_compat.py
+│   │   ├── agent/
+│   │   │   ├── core.py         # Agent 핵심 로직
+│   │   │   ├── llm.py          # LLM 클라이언트
+│   │   │   └── tools.py        # PM 도구 정의
+│   │   ├── state/
+│   │   │   └── manager.py      # 상태 관리
+│   │   └── pm/
+│   │
+│   └── web/                    # Next.js 프론트엔드
+│       ├── src/app/
+│       │   ├── layout.tsx
+│       │   ├── page.tsx        # / → /projects 리다이렉트
+│       │   ├── projects/
+│       │   │   └── page.tsx    # 프로젝트 목록
+│       │   └── graphs/
+│       │       └── page.tsx    # 그래프 목록 + Sync
+│       ├── next.config.ts
+│       ├── package.json
+│       └── Dockerfile
+│
+├── turbo.json
+├── package.json
+├── pnpm-workspace.yaml
 ├── docker-compose.yaml
-├── .env                    # API 키 (gitignore)
-│
-├── api/
-│   ├── __init__.py
-│   └── openai_compat.py    # OpenAI 호환 API
-│
-├── agent/
-│   ├── __init__.py
-│   ├── core.py             # Agent 핵심 로직
-│   ├── llm.py              # LLM 클라이언트
-│   └── tools.py            # PM 도구 정의
-│
-├── state/
-│   ├── __init__.py
-│   └── manager.py          # 상태 관리
-│
-├── pm/                     # (Phase 2: worktree, SSH)
-│   └── __init__.py
+├── .env                        # API 키 (gitignore)
 │
 └── data/
-    ├── projects.yaml       # 프로젝트 상태 저장
-    └── jira_graphs/        # Jira 이슈 그래프 HTML 파일
+    ├── projects.yaml           # 프로젝트 상태 저장
+    └── jira_graphs/            # Jira 이슈 그래프 HTML 파일
 ```
 
 ## API 엔드포인트
 
-### GET /
+> **Note**: 모든 API는 Next.js (포트 4000)를 통해 프록시됩니다.
+> `/api/*`, `/v1/*` 요청은 자동으로 FastAPI 백엔드로 전달됩니다.
+
+### GET /api/
 서버 상태 확인
 ```json
 {"name": "PM Agent", "version": "0.1.0", "status": "running"}
@@ -165,34 +179,94 @@ OpenAI 호환 채팅 API
 }
 ```
 
-### GET /graphs
+### 웹 페이지 (Next.js)
+
+#### /projects
+PM Agent 프로젝트 목록 페이지
+- 등록된 프로젝트명, 표시명(title), 경로, 머신, 태스크 수 표시
+- **드래그 앤 드롭 순서 변경**: 프로젝트 카드 왼쪽 핸들(⋮⋮)로 순서 변경 가능
+  - 순서는 localStorage(`pm-project-order`)에 자동 저장
+  - 새로고침 후에도 순서 유지
+- 태스크별 상태 배지 (in_progress/in_review/completed)
+- GitHub PR 배지 (상태, draft 여부, 리뷰 상태 표시)
+- Jira 링크 클릭 가능
+- **New Task 버튼**: AI 브랜치 이름 추천 → 선택 → 워크트리 생성
+- **상태 동기화 버튼**: 모든 태스크 상태를 GitHub PR 기반으로 자동 업데이트
+- **태스크 관리**: 아카이브/삭제 버튼 (hover시 표시)
+- **아카이브된 태스크**: 접힌 상태로 별도 표시, 복구/삭제 가능
+- **경로 복사 버튼**: 📋 path 버튼 클릭으로 worktree 경로 클립보드 복사
+
+#### /graphs
 Jira 그래프 목록 페이지
 - 생성된 모든 그래프 HTML 파일 목록
 - Jira 이슈 제목 자동 표시 (JQL 배치 조회)
+- **새 그래프 생성**: Jira Issue Key 입력 → Generate 버튼 (또는 Enter)
 - 각 항목별 Sync 버튼 (개별 그래프 재생성)
+- **삭제 버튼**: 각 그래프 옆 휴지통 아이콘 (확인 다이얼로그)
+- Sync 진행 상태 실시간 모달 표시 (SSE)
 
-### GET /graphs/{filename}
-개별 그래프 HTML 파일 서빙
+#### /graphs/{filename}
+개별 그래프 HTML 파일 서빙 (iframe)
 
-### GET /projects
-PM Agent 로컬 프로젝트 목록 페이지
-- 등록된 프로젝트명, 표시명(title), 경로, 머신, 태스크 수 표시
+### 백엔드 API (FastAPI)
 
-### GET /jira-projects
-Jira 프로젝트 목록 페이지
-- Jira API에서 프로젝트 목록 조회
-- 각 프로젝트 클릭시 Jira로 이동
+#### GET /api/projects
+프로젝트 목록 JSON 반환
 
-### POST /api/graphs/sync/{issue_key}
+#### GET /api/graphs
+그래프 목록 JSON 반환
+
+#### POST /api/graphs/sync/{issue_key}
 단일 이슈 그래프 재생성
 - `issue_key`: Jira 이슈 키 (경로 파라미터)
 - Jira에서 최신 데이터로 그래프 HTML 재생성
 
-### GET /api/graphs/sync-stream/{issue_key}
+#### GET /api/graphs/sync-stream/{issue_key}
 단일 이슈 그래프 재생성 (SSE 실시간 스트림)
 - `issue_key`: Jira 이슈 키 (경로 파라미터)
 - Server-Sent Events로 진행 상태 실시간 전송
 - 이벤트 타입: `fetching` (조회 시작), `fetched` (조회 완료), `done` (완료), `error` (에러)
+
+#### DELETE /api/graphs/{issue_key}
+그래프 파일 삭제
+- `issue_key`: Jira 이슈 키 (경로 파라미터)
+- Response: `{ "success": true, "message": "..." }`
+
+#### POST /api/suggest-branch-names
+AI 기반 브랜치 이름 추천
+- Request: `{ "project": "...", "description": "..." }`
+- Response: `{ "suggestions": [{ "type": "feat", "name": "...", "full": "feat/...", "reason": "..." }] }`
+- LLM으로 작업 설명 분석 → 3개 브랜치 이름 추천
+
+#### POST /api/create-task
+태스크 생성 (워크트리 자동 생성)
+- Request: `{ "project": "...", "branch": "feat/...", "description": "..." }`
+- Response: `{ "success": true, "task_name": "...", "worktree_path": "..." }`
+
+#### POST /api/delete-task
+태스크 완전 삭제 (워크트리 포함)
+- Request: `{ "project": "...", "task_name": "..." }`
+
+#### POST /api/archive-task
+태스크 아카이브 (soft delete)
+- Request: `{ "project": "...", "task_name": "..." }`
+
+#### POST /api/restore-task
+아카이브된 태스크 복구
+- Request: `{ "project": "...", "task_name": "..." }`
+
+#### POST /api/pr-info
+브랜치의 GitHub PR 정보 조회
+- Request: `{ "repo_path": "...", "branch": "..." }`
+- Response: `{ "number": 42, "state": "OPEN|MERGED|CLOSED", "url": "...", "draft": false, "review_status": "APPROVED|..." }`
+
+#### POST /api/sync-task-statuses
+모든 태스크 상태를 GitHub PR 기반으로 자동 동기화
+- 상태 결정 로직:
+  - PR 없음 또는 draft → `in_progress`
+  - PR open (not draft) → `in_review`
+  - PR merged → `completed`
+- Response: `{ "success": true, "updated": [...], "count": 11 }`
 
 ## PM Tools
 
@@ -260,7 +334,20 @@ Jira 프로젝트 목록 페이지
 태스크 상태 업데이트
 - `project`: 프로젝트 이름 (필수)
 - `task_name`: 태스크 이름 (필수)
-- `status`: pending/in_progress/completed (필수)
+- `status`: in_progress/in_review/completed (필수)
+
+> **Note**: 상태는 GitHub PR 기반으로 자동 결정되므로 수동 변경은 권장하지 않음.
+> `/api/sync-task-statuses` 엔드포인트로 전체 동기화 가능.
+
+### archive_task
+태스크 아카이브 (soft delete)
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
+
+### restore_task
+아카이브된 태스크 복구
+- `project`: 프로젝트 이름 (필수)
+- `task_name`: 태스크 이름 (필수)
 
 ### list_directory
 Documents 하위 디렉토리 조회
@@ -345,11 +432,12 @@ Jira 이슈 트리를 인터랙티브 HTML 그래프로 시각화 (D3.js)
 - D3.js 기반 force-directed 그래프
 - 줌/팬, 드래그 지원
 - 클릭시 Jira/Notion 페이지로 이동
+- **상위/하위 이슈 표시**: parent, subtasks, children, linked issues 모두 표시
 - **상태/타입별 필터**: 범례 클릭으로 특정 상태나 타입 숨기기/보이기
 - **병렬 조회**: ThreadPoolExecutor로 하위 이슈 동시 조회 (10개씩)
 - **실시간 진행 표시**: `/graphs` 페이지에서 Sync 클릭시 모달로 진행 상태 표시
 - 파일 저장: `data/jira_graphs/{issue_key}_graph.html`
-- `/graphs` 페이지에서 목록 조회 가능
+- `/graphs` 페이지에서 목록 조회, 생성, 삭제 가능
 
 ### analyze_jira_image
 Jira 이슈 첨부 이미지 분석 (Vision API 활용)
@@ -406,7 +494,11 @@ Notion 워크스페이스 검색
 docker compose up -d
 ```
 
-Docker 볼륨 마운트:
+서비스:
+- `pm-api`: FastAPI 백엔드 (내부 포트 8000)
+- `pm-web`: Next.js 프론트엔드 (외부 포트 4000)
+
+Docker 볼륨 마운트 (api):
 - `/home/amos/Documents` → 로컬 프로젝트 접근
 - `/home/amos/.ssh` → SSH 키 (원격 접근)
 - `/home/amos/.claude` → Claude CLI 세션 공유
@@ -416,14 +508,27 @@ Docker 볼륨 마운트:
 
 ### 로컬 개발
 ```bash
-uv run uvicorn main:app --reload
+# 전체 (Turborepo)
+pnpm dev
+
+# 웹만
+pnpm dev:web
+
+# API만
+pnpm dev:api
+# 또는
+cd apps/api && uv run uvicorn main:app --reload --port 8000
 ```
+
+개발 서버 URL:
+- Web: http://localhost:4000
+- API: http://localhost:8000 (직접 접근, 보통 Next.js 프록시 사용)
 
 ## 연결 정보
 
-- **로컬**: http://localhost:9001
-- **Tailscale**: http://100.119.182.54:9001
-- **OpenWebUI Endpoint**: http://100.119.182.54:9001/v1
+- **로컬**: http://localhost:4000
+- **Tailscale**: http://100.119.182.54:4000
+- **OpenWebUI Endpoint**: http://100.119.182.54:4000/v1
 
 ## 상태 저장 형식
 
@@ -439,7 +544,8 @@ projects:
       PRDEL-107-invite:
         branch: feature/PRDEL-107/invite-feature
         worktree: /home/user/projects/my-project-worktrees/PRDEL-107-invite-a1b2c3d
-        status: in_progress
+        status: in_progress  # PR 기반 자동: in_progress/in_review/completed
+        archived_at: null     # 아카이브 시 ISO 날짜 저장
         context: |
           초대 기능 구현
         jira_key: PRDEL-107
@@ -507,11 +613,62 @@ projects:
 - [x] Notion 노드 통합 표시
 - [x] /graphs 그래프 목록 페이지
 - [x] /projects 프로젝트 목록 페이지
-- [x] /jira-projects Jira 프로젝트 목록 페이지
 - [x] 개별 그래프 동기화 버튼
 - [x] Sync 실시간 진행 표시 (SSE 스트림 + 모달)
 - [x] Jira 이슈 병렬 조회 (ThreadPoolExecutor)
+- [x] 그래프 생성 UI (Issue Key 입력 → Generate)
+- [x] 그래프 삭제 UI (휴지통 버튼 + 확인)
+- [x] Parent 이슈 그래프 표시
 
-### Phase 8: 고도화
+### Phase 8: 태스크 생성/관리 UI ✅
+- [x] 브랜치 추천 API (`POST /api/suggest-branch-names`)
+- [x] 태스크 생성 API (`POST /api/create-task`)
+- [x] 태스크 생성 모달 UI (New Task 버튼)
+- [x] 태스크 아카이브/삭제 UI
+- [x] GitHub PR 연동 (PR 배지 표시)
+- [x] 상태 동기화 API (`POST /api/sync-task-statuses`)
+- [x] 상태 동기화 버튼 (PR 기반 자동 상태 업데이트)
+- [ ] 프로젝트 상세 페이지 (`/projects/{name}`)
+
+#### 구현된 기능
+
+**브랜치 추천 모달:**
+```
+┌─────────────────────────────────────────────────┐
+│  New Task                                  [X]  │
+├─────────────────────────────────────────────────┤
+│  프로젝트: letsur-platform-web                  │
+│                                                 │
+│  작업 설명:                                     │
+│  ┌─────────────────────────────────────────┐   │
+│  │ 초대 링크 만료 시 리셋 플로우 구현       │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+│  [브랜치 이름 추천받기]                          │
+│                                                 │
+│  추천 브랜치:                                   │
+│  ● feat/invitation-link-reset                  │
+│    "새 기능이므로 feat 타입 추천"               │
+│  ○ feat/add-invite-reset-flow                  │
+│  ○ chore/invite-link-handling                  │
+│                                                 │
+│  [재추천]                    [생성]             │
+└─────────────────────────────────────────────────┘
+```
+
+**태스크 상태 기준 (자동):**
+| PR 상태 | 태스크 상태 |
+|---------|-------------|
+| PR 없음 | in_progress |
+| PR draft | in_progress |
+| PR open (not draft) | in_review |
+| PR merged | completed |
+
+### Phase 9: UX 개선 ✅
+- [x] 프로젝트 순서 드래그 앤 드롭 (@dnd-kit)
+- [x] localStorage 기반 순서 저장
+
+### Phase 10: 고도화
 - [ ] 채팅 스트리밍 응답
 - [ ] 웹훅/알림
+- [ ] 프로젝트 상세 페이지

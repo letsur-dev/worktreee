@@ -7,8 +7,20 @@ wheels/
 *.egg-info
 .venv/
 
+# Node.js
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Turborepo
+.turbo/
+
 # Environment
 .env
+.env.local
+.env.*.local
 
 # Data (로컬 상태)
 data/
@@ -22,3 +34,6 @@ data/
 
 # uv
 uv.lock
+
+# MCP
+.mcp.json

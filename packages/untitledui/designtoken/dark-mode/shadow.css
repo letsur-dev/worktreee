@@ -1,0 +1,241 @@
+/**
+ * This file was generated automatically by Supernova.io and should not be changed manually.
+ * To modify the format or content of this file, please contact your design system team.
+ */
+
+.theme-dark-mode {
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-xs: 0px 1px 2px 0px
+    rgba(var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs), 0.05);
+  /* Used to create a subtle skeuomorphic effect in components such as buttons and tabs.
+
+This can be removed or replaced with shadow-xs if you prefer a flat style. */
+  --shadow-shadows-shadow-xs-skeuomorphic:
+    0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs),
+      0.05
+    ), inset 0px -2px 0px 0px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner
+      ),
+      0.05
+    ), inset 0px 0px 0px 1px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner-border
+      ),
+      0.18
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-sm:
+    0px 1px 2px -1px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-sm-02),
+      0.1
+    ), 0px 1px 3px 0px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-sm-01),
+      0.1
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-md:
+    0px 2px 4px -2px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-md-02),
+      0.06
+    ), 0px 4px 6px -1px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-md-01),
+      0.1
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-lg:
+    0px 2px 2px -1px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-lg-03),
+      0.04
+    ), 0px 4px 6px -2px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-lg-02),
+      0.03
+    ), 0px 12px 16px -4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-lg-01),
+      0.08
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-xl:
+    0px 3px 3px -1.5px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xl-03),
+      0.04
+    ), 0px 8px 8px -4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xl-02),
+      0.03
+    ), 0px 20px 24px -4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xl-01),
+      0.08
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-2xl:
+    0px 4px 4px -2px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-2xl-02),
+      0.04
+    ), 0px 24px 48px -12px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-2xl-01),
+      0.18
+    );
+  /* Shadows allow you to add depth and realism to designs by positioning elements on a z-axis. */
+  --shadow-shadows-shadow-3xl:
+    0px 5px 5px -2.5px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-3xl-02),
+      0.04
+    ), 0px 32px 64px -12px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-3xl-01),
+      0.14
+    );
+  /* Used for portfolio mockup layouts. */
+  --shadow-shadows-portfolio-mockups-shadow-main-centre-md: 0px 75px 150px 0px
+    rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-portfolio-mockups-shadow-main-centre-md
+      ),
+      0.14
+    );
+  /* Used for portfolio mockup layouts. */
+  --shadow-shadows-portfolio-mockups-shadow-main-centre-lg: 0px 100px 200px 0px
+    rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-portfolio-mockups-shadow-main-centre-lg
+      ),
+      0.18
+    );
+  /* Used for portfolio mockup layouts. */
+  --shadow-shadows-portfolio-mockups-shadow-overlay-right-lg: -40px 40px 72px
+    0px
+    rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-portfolio-mockups-shadow-overlay-lg
+      ),
+      0.12
+    );
+  /* Used for portfolio mockup layouts. */
+  --shadow-shadows-portfolio-mockups-shadow-overlay-left-lg: 100px 100px 150px
+    0px
+    rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-portfolio-mockups-shadow-overlay-lg
+      ),
+      0.12
+    );
+  /* Used for portfolio mockup layouts. */
+  --shadow-shadows-portfolio-mockups-shadow-grid-md: 32px 32px 64px 0px
+    rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-portfolio-mockups-shadow-grid-md
+      ),
+      0.08
+    );
+  /* Used for focus states in components. For example toggles and checkboxes. */
+  --shadow-focus-rings-focus-ring:
+    0px 0px 0px 4px
+    rgba(
+      var(--rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring),
+      1
+    ), 0px 0px 0px 2px
+    rgba(var(--rgb-color-1-color-modes-colors-background-bg-primary), 1);
+  /* Used for focus states in components that also require a shadow. For example, buttons and tabs. */
+  --shadow-focus-rings-focus-ring-shadow-xs:
+    0px 0px 0px 4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring),
+      1
+    ), 0px 0px 0px 2px rgba(
+      var(--rgb-color-1-color-modes-colors-background-bg-primary),
+      1
+    ), 0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs),
+      0.05
+    );
+  /* Used for focus states in components that also require a shadow and a subtle skeuomorphic effect. For example, buttons and tabs.
+
+This can be replaced with focus-ring-shadow-xs if you prefer a flat style. */
+  --shadow-focus-rings-focus-ring-shadow-xs-skeuomorphic:
+    0px 0px 0px 4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring),
+      1
+    ), 0px 0px 0px 2px rgba(
+      var(--rgb-color-1-color-modes-colors-background-bg-primary),
+      1
+    ), 0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs),
+      0.05
+    ), inset 0px -2px 0px 0px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner
+      ),
+      0.05
+    ), inset 0px 0px 0px 1px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner-border
+      ),
+      0.18
+    );
+  /* Used for focus states in components that also require a shadow. For example, buttons and tabs. */
+  --shadow-focus-rings-focus-ring-shadow-sm:
+    0px 0px 0px 4px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring),
+      1
+    ), 0px 0px 0px 2px rgba(
+      var(--rgb-color-1-color-modes-colors-background-bg-primary),
+      1
+    ), 0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-sm-02),
+      0.1
+    ), 0px 1px 3px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-sm-01),
+      0.1
+    );
+  /* Used for destructive or error focus states in components. For example, destructive button links. */
+  --shadow-focus-rings-focus-ring-error:
+    0px 0px 0px 4px #f04438, 0px 0px 0px 2px
+    rgba(var(--rgb-color-1-color-modes-colors-background-bg-primary), 1);
+  /* Used for destructive or error focus states in components that also require a shadow. For example, destructive buttons. */
+  --shadow-focus-rings-focus-ring-error-shadow-xs:
+    0px 0px 0px 4px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring-error
+      ),
+      1
+    ), 0px 0px 0px 2px rgba(
+      var(--rgb-color-1-color-modes-colors-background-bg-primary),
+      1
+    ), 0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs),
+      0.05
+    );
+  /* Used for focus states in destructive or error components that also require a shadow and a subtle skeuomorphic effect. For example, destructive buttons.
+
+This can be replaced with focus-ring-error-shadow-xs if you prefer a flat style. */
+  --shadow-focus-rings-focus-ring-error-shadow-xs-skeuomorphic:
+    0px 0px 0px 4px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-focus-rings-focus-ring-error
+      ),
+      1
+    ), 0px 0px 0px 2px rgba(
+      var(--rgb-color-1-color-modes-colors-background-bg-primary),
+      1
+    ), 0px 1px 2px 0px rgba(
+      var(--rgb-color-1-color-modes-colors-effects-shadows-shadow-xs),
+      0.05
+    ), inset 0px -2px 0px 0px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner
+      ),
+      0.05
+    ), inset 0px 0px 0px 1px rgba(
+      var(
+        --rgb-color-1-color-modes-colors-effects-shadows-shadow-skeumorphic-inner-border
+      ),
+      0.18
+    );
+}

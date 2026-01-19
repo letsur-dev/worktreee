@@ -1,0 +1,33 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.6/schema.json",
+  "extends": ["../../biome.json"],
+  "linter": {
+    "rules": {
+      "a11y": {
+        "noStaticElementInteractions": "off",
+        "useKeyWithClickEvents": "off",
+        "noSvgWithoutTitle": "off",
+        "noRedundantAlt": "off",
+        "useButtonType": "off",
+        "useSemanticElements": "off",
+        "useMediaCaption": "off",
+        "useValidAnchor": "off"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "off"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off",
+        "noExplicitAny": "off",
+        "useIterableCallbackReturn": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "performance": {
+        "noImgElement": "off",
+        "noAccumulatingSpread": "off"
+      }
+    }
+  }
+}

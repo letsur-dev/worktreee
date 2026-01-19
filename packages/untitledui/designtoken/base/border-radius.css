@@ -1,0 +1,18 @@
+/**
+ * This file was generated automatically by Supernova.io and should not be changed manually.
+ * To modify the format or content of this file, please contact your design system team.
+ */
+
+:root {
+  --border-radius-2-radius-none: 0px;
+  --border-radius-2-radius-xxs: 2px;
+  --border-radius-2-radius-xs: 4px;
+  --border-radius-2-radius-sm: 6px;
+  --border-radius-2-radius-md: 8px;
+  --border-radius-2-radius-lg: 10px;
+  --border-radius-2-radius-xl: 12px;
+  --border-radius-2-radius-2xl: 16px;
+  --border-radius-2-radius-3xl: 20px;
+  --border-radius-2-radius-4xl: 24px;
+  --border-radius-2-radius-full: 9999px;
+}

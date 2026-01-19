@@ -1,0 +1,247 @@
+/**
+ * This file was generated automatically by Supernova.io and should not be changed manually.
+ * To modify the format or content of this file, please contact your design system team.
+ */
+
+:root {
+  --typography-display-2xl-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-2xl) /
+    var(--line-height-6-typography-line-height-display-2xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-2xl-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-2xl) /
+    var(--line-height-6-typography-line-height-display-2xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-2xl-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-2xl) /
+    var(--line-height-6-typography-line-height-display-2xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-2xl-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-2xl) /
+    var(--line-height-6-typography-line-height-display-2xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xl-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-xl) /
+    var(--line-height-6-typography-line-height-display-xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xl-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-xl) /
+    var(--line-height-6-typography-line-height-display-xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xl-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-xl) /
+    var(--line-height-6-typography-line-height-display-xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xl-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-xl) /
+    var(--line-height-6-typography-line-height-display-xl)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-lg-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-lg) /
+    var(--line-height-6-typography-line-height-display-lg)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-lg-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-lg) /
+    var(--line-height-6-typography-line-height-display-lg)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-lg-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-lg) /
+    var(--line-height-6-typography-line-height-display-lg)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-lg-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-lg) /
+    var(--line-height-6-typography-line-height-display-lg)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-md-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-md) /
+    var(--line-height-6-typography-line-height-display-md)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-md-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-md) /
+    var(--line-height-6-typography-line-height-display-md)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-md-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-md) /
+    var(--line-height-6-typography-line-height-display-md)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-md-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-md) /
+    var(--line-height-6-typography-line-height-display-md)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-sm-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-sm) /
+    var(--line-height-6-typography-line-height-display-sm)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-sm-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-sm) /
+    var(--line-height-6-typography-line-height-display-sm)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-sm-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-sm) /
+    var(--line-height-6-typography-line-height-display-sm)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-sm-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-sm) /
+    var(--line-height-6-typography-line-height-display-sm)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xs-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-display-xs) /
+    var(--line-height-6-typography-line-height-display-xs)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xs-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-display-xs) /
+    var(--line-height-6-typography-line-height-display-xs)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xs-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-display-xs) /
+    var(--line-height-6-typography-line-height-display-xs)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-display-xs-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-display-xs) /
+    var(--line-height-6-typography-line-height-display-xs)
+    var(--font-family-6-typography-font-family-font-family-display);
+  --typography-text-xl-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-xl) /
+    var(--line-height-6-typography-line-height-text-xl)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xl-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-xl) /
+    var(--line-height-6-typography-line-height-text-xl)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xl-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-xl) /
+    var(--line-height-6-typography-line-height-text-xl)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xl-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-xl) /
+    var(--line-height-6-typography-line-height-text-xl)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-lg-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-lg) /
+    var(--line-height-6-typography-line-height-text-lg)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-lg-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-lg) /
+    var(--line-height-6-typography-line-height-text-lg)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-lg-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-lg) /
+    var(--line-height-6-typography-line-height-text-lg)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-lg-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-lg) /
+    var(--line-height-6-typography-line-height-text-lg)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-md-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-md) /
+    var(--line-height-6-typography-line-height-text-md)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-md-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-md) /
+    var(--line-height-6-typography-line-height-text-md)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-md-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-md) /
+    var(--line-height-6-typography-line-height-text-md)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-md-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-md) /
+    var(--line-height-6-typography-line-height-text-md)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-sm-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-sm) /
+    var(--line-height-6-typography-line-height-text-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-sm-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-sm) /
+    var(--line-height-6-typography-line-height-text-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-sm-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-sm) /
+    var(--line-height-6-typography-line-height-text-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-sm-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-xs-sm) /
+    var(--line-height-6-typography-line-height-text-xs-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-sm-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-xs-sm) /
+    var(--line-height-6-typography-line-height-text-xs-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-sm-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-xs-sm) /
+    var(--line-height-6-typography-line-height-text-xs-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-sm-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-xs-sm) /
+    var(--line-height-6-typography-line-height-text-xs-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-regular:
+    var(--font-weight-6-typography-font-weight-regular)
+    var(--dimension-6-typography-font-size-text-xs) /
+    var(--line-height-6-typography-line-height-text-xs)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-medium:
+    var(--font-weight-6-typography-font-weight-medium)
+    var(--dimension-6-typography-font-size-text-xs) /
+    var(--line-height-6-typography-line-height-text-xs)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-semibold:
+    var(--font-weight-6-typography-font-weight-semibold)
+    var(--dimension-6-typography-font-size-text-xs) /
+    var(--line-height-6-typography-line-height-text-xs)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-sm-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-sm) /
+    var(--line-height-6-typography-line-height-text-sm)
+    var(--font-family-6-typography-font-family-font-family-body);
+  --typography-text-xs-bold:
+    var(--font-weight-6-typography-font-weight-bold)
+    var(--dimension-6-typography-font-size-text-xs) /
+    var(--line-height-6-typography-line-height-text-xs)
+    var(--font-family-6-typography-font-family-font-family-body);
+}

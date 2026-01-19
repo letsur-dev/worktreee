@@ -1,0 +1,54 @@
+/**
+ * This file was generated automatically by Supernova.io and should not be changed manually.
+ * To modify the format or content of this file, please contact your design system team.
+ */
+
+:root {
+  --size-primitives-spacing-0-0px: 0px;
+  --size-primitives-spacing-0-5-2px: 2px;
+  --size-primitives-spacing-1-4px: 4px;
+  --size-primitives-spacing-1-5-6px: 6px;
+  --size-primitives-spacing-2-8px: 8px;
+  --size-primitives-spacing-2-5-10px: 10px;
+  --size-primitives-spacing-3-12px: 12px;
+  --size-primitives-spacing-4-16px: 16px;
+  --size-primitives-spacing-5-20px: 20px;
+  --size-primitives-spacing-6-24px: 24px;
+  --size-primitives-spacing-8-32px: 32px;
+  --size-primitives-spacing-10-40px: 40px;
+  --size-primitives-spacing-12-48px: 48px;
+  --size-primitives-spacing-16-64px: 64px;
+  --size-primitives-spacing-20-80px: 80px;
+  --size-primitives-spacing-24-96px: 96px;
+  --size-primitives-spacing-32-128px: 128px;
+  --size-primitives-spacing-40-160px: 160px;
+  --size-primitives-spacing-48-192px: 192px;
+  --size-primitives-spacing-56-224px: 224px;
+  --size-primitives-spacing-64-256px: 256px;
+  --size-primitives-spacing-80-320px: 320px;
+  --size-primitives-spacing-96-384px: 384px;
+  --size-primitives-spacing-120-480px: 480px;
+  --size-primitives-spacing-140-560px: 560px;
+  --size-primitives-spacing-160-640px: 640px;
+  --size-primitives-spacing-180-720px: 720px;
+  --size-primitives-spacing-192-768px: 768px;
+  --size-primitives-spacing-256-1-024px: 1024px;
+  --size-primitives-spacing-320-1-280px: 1280px;
+  --size-primitives-spacing-360-1-440px: 1440px;
+  --size-primitives-spacing-400-1-600px: 1600px;
+  --size-primitives-spacing-480-1-920px: 1920px;
+  --size-5-containers-container-max-width-desktop: var(
+    --size-primitives-spacing-320-1-280px
+  );
+  --size-4-widths-width-xxs: var(--size-primitives-spacing-80-320px);
+  --size-4-widths-width-xs: var(--size-primitives-spacing-96-384px);
+  --size-4-widths-width-sm: var(--size-primitives-spacing-120-480px);
+  --size-4-widths-width-md: var(--size-primitives-spacing-140-560px);
+  --size-4-widths-width-lg: var(--size-primitives-spacing-160-640px);
+  --size-4-widths-width-xl: var(--size-primitives-spacing-192-768px);
+  --size-4-widths-width-2xl: var(--size-primitives-spacing-256-1-024px);
+  --size-4-widths-width-3xl: var(--size-primitives-spacing-320-1-280px);
+  --size-4-widths-width-4xl: var(--size-primitives-spacing-360-1-440px);
+  --size-4-widths-width-5xl: var(--size-primitives-spacing-400-1-600px);
+  --size-4-widths-width-6xl: var(--size-primitives-spacing-480-1-920px);
+}
