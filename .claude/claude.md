@@ -108,6 +108,7 @@ OpenWebUI / Client
 | LLM 호출 | openai 라이브러리 |
 | 상태 저장 | YAML 파일 |
 | 컨테이너 | Docker |
+| GitHub 연동 | GitHub CLI (gh) |
 
 ## 프로젝트 구조
 
@@ -134,7 +135,9 @@ pm-worktree/
 │       │   ├── layout.tsx
 │       │   ├── page.tsx        # / → /projects 리다이렉트
 │       │   ├── projects/
-│       │   │   └── page.tsx    # 프로젝트 목록
+│       │   │   ├── page.tsx    # 프로젝트 목록
+│       │   │   └── archive/
+│       │   │       └── page.tsx # 아카이브된 태스크
 │       │   └── graphs/
 │       │       └── page.tsx    # 그래프 목록 + Sync
 │       ├── next.config.ts
@@ -193,8 +196,15 @@ PM Agent 프로젝트 목록 페이지
 - **New Task 버튼**: AI 브랜치 이름 추천 → 선택 → 워크트리 생성
 - **상태 동기화 버튼**: 모든 태스크 상태를 GitHub PR 기반으로 자동 업데이트
 - **태스크 관리**: 아카이브/삭제 버튼 (hover시 표시)
-- **아카이브된 태스크**: 접힌 상태로 별도 표시, 복구/삭제 가능
 - **경로 복사 버튼**: 📋 path 버튼 클릭으로 worktree 경로 클립보드 복사
+- **Archive 링크**: 아카이브된 태스크는 별도 페이지에서 관리
+
+#### /projects/archive
+아카이브된 태스크 목록 페이지
+- 모든 프로젝트의 아카이브된 태스크 모아보기
+- **그룹핑**: 프로젝트별 / 날짜별 전환 가능
+- 태스크 복구/삭제 기능
+- 아카이브 날짜 표시
 
 #### /graphs
 Jira 그래프 목록 페이지
@@ -502,9 +512,10 @@ Docker 볼륨 마운트 (api):
 - `/home/amos/Documents` → 로컬 프로젝트 접근
 - `/home/amos/.ssh` → SSH 키 (원격 접근)
 - `/home/amos/.claude` → Claude CLI 세션 공유
+- `/home/amos/.config/gh` → GitHub CLI 인증 공유
 
 > **Note**: `~/.claude` 마운트로 Claude CLI 인증이 자동 공유됩니다.
-> 별도의 ANTHROPIC_API_KEY 설정 불필요.
+> `~/.config/gh` 마운트로 GitHub CLI (`gh`) 인증이 자동 공유되어 PR 상태 조회가 가능합니다.
 
 ### 로컬 개발
 ```bash
@@ -672,3 +683,35 @@ projects:
 - [ ] 채팅 스트리밍 응답
 - [ ] 웹훅/알림
 - [ ] 프로젝트 상세 페이지
+
+---
+
+## 미해결 이슈
+
+### Vercel 배포 (검토 필요)
+
+**현재 상태:**
+- Vercel 프로젝트 존재: `pm-agent-ten.vercel.app`
+- GitHub: `shallwefootball/pm-agent` 연결됨
+- 모노레포 구조 변경 후 빌드 실패 중
+
+**문제점:**
+PM Agent는 로컬 전용 도구로, Vercel에서 실행 불가:
+- 로컬 파일시스템 접근 필요
+- SSH (원격 머신 접근) 필요
+- Claude CLI 필요
+- Git worktree 생성 필요
+
+**원래 의도 (추정):**
+- Mac에서 NUC의 PM Agent API를 호출하려고 했을 수 있음
+- Tailscale 없이 외부 접근용?
+- Claude Code에서 MCP처럼 tool calling?
+
+**현재 접근 방법:**
+- Tailscale: `http://100.119.182.54:4000`
+- OpenWebUI Endpoint: `http://100.119.182.54:4000/v1`
+
+**TODO:**
+- [ ] Vercel 배포 목적 재검토
+- [ ] 필요 없으면 Vercel 프로젝트 삭제
+- [ ] 외부 접근이 필요하면 다른 방법 검토 (Cloudflare Tunnel 등)

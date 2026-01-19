@@ -19,6 +19,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
       - DATA_PATH=/data
+      - REMOTE_HOSTS=${REMOTE_HOSTS}
       - JIRA_URL=${JIRA_URL}
       - JIRA_EMAIL=${JIRA_EMAIL}
       - JIRA_API_TOKEN=${JIRA_API_TOKEN}

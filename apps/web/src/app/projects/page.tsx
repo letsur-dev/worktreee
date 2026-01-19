@@ -690,41 +690,6 @@ function SortableProjectCard({
             </div>
           )}
 
-          {archivedTasks.length > 0 && (
-            <details className="mt-4">
-              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400">
-                아카이브된 태스크 ({archivedTasks.length})
-              </summary>
-              <div className="mt-2 space-y-2">
-                {archivedTasks.map((task) => (
-                  <div
-                    key={task.name}
-                    className="group p-3 bg-gray-900/50 rounded-lg border border-gray-800 opacity-60"
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <StatusBadge status={task.status} />
-                      <span className="font-medium text-gray-400 line-through">
-                        {task.name}
-                      </span>
-                      {task.jira_key && (
-                        <span className="px-2 py-0.5 bg-gray-700/50 text-gray-500 rounded text-xs">
-                          {task.jira_key}
-                        </span>
-                      )}
-                      <TaskActions
-                        project={project.name}
-                        task={task}
-                        onUpdated={onTaskUpdated}
-                      />
-                    </div>
-                    <code className="block mt-1 text-xs text-gray-600 font-mono">
-                      {task.branch}
-                    </code>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
 
           {activeTasks.length === 0 && archivedTasks.length === 0 && (
             <p className="text-gray-500 text-sm">태스크 없음</p>
@@ -859,7 +824,15 @@ export default function ProjectsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-100">Projects</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-100">Projects</h1>
+          <Link
+            href="/projects/archive"
+            className="text-sm text-gray-500 hover:text-gray-300 transition"
+          >
+            Archive →
+          </Link>
+        </div>
         <div className="flex items-center gap-3">
           {syncResult && (
             <span className="text-xs text-success-400">

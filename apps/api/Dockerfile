@@ -1,9 +1,12 @@
 FROM python:3.11-slim
 
-# SSH 클라이언트, Git, Node.js 설치
+# SSH 클라이언트, Git, Node.js, GitHub CLI 설치
 RUN apt-get update && apt-get install -y openssh-client git curl && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
 # amos 사용자 생성 (uid 1000) - SSH 등에서 필요
