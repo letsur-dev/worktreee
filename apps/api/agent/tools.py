@@ -607,6 +607,9 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
                 jira_key=arguments.get("jira_key"),
                 notion_urls=arguments.get("notion_urls"),
             )
+            # 이미 존재하는 경우 - 기존 태스크 정보 반환
+            if result.get("exists"):
+                return result
             # Phase 2: 워크트리 자동 생성
             if result.get("success"):
                 worktree_result = state_manager.create_worktree(

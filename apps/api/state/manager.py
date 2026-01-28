@@ -146,7 +146,16 @@ class StateManager:
 
         proj = data["projects"][project]
         if task_name in proj.get("tasks", {}):
-            return {"error": f"태스크 '{task_name}'이(가) 이미 존재합니다."}
+            existing_task = proj["tasks"][task_name]
+            return {
+                "exists": True,
+                "message": f"태스크 '{task_name}'이(가) 이미 존재합니다.",
+                "task": {
+                    "name": task_name,
+                    "project": project,
+                    **existing_task
+                }
+            }
 
         branch = branch or task_name
         task_data = {
