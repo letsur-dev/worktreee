@@ -1,7 +1,10 @@
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,6 +29,32 @@ def extract_notion_urls(text: str) -> list[str]:
     return list(set(re.findall(pattern, text)))
 
 
+def extract_pr_info(url: str) -> tuple[str, str, int] | None:
+    """GitHub PR URL에서 owner, repo, pr_number 추출
+    예: https://github.com/letsur-dev/letsur-platform-web/pull/33
+    """
+    pattern = r'https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)'
+    match = re.match(pattern, url)
+    if match:
+        return match.group(1), match.group(2), int(match.group(3))
+    return None
+
+
+def get_pr_head_branch(owner: str, repo: str, pr_number: int) -> str | None:
+    """GitHub API로 PR의 head 브랜치 조회"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"/repos/{owner}/{repo}/pulls/{pr_number}", "--jq", ".head.ref"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception as e:
+        logger.error(f"PR 브랜치 조회 실패: {e}")
+    return None
+
+
 class BranchSuggestRequest(BaseModel):
     project: str
     description: str
@@ -48,6 +77,7 @@ class CreateTaskRequest(BaseModel):
     project: str
     branch: str
     description: str
+    base_branch: str | None = None  # base 브랜치명 또는 PR URL
 
 
 class CreateTaskResponse(BaseModel):
@@ -108,6 +138,7 @@ async def api_list_projects():
                 "worktree": task.get('worktree'),
                 "created": task.get('created'),
                 "archived_at": task.get('archived_at'),
+                "pr": task.get('pr'),
             })
 
         projects.append({
@@ -346,7 +377,7 @@ async def suggest_branch_names(request: BranchSuggestRequest):
         jira_issue = sm.get_jira_issue(jira_key, include_children=False, recursive=False, fetch_notion=False)
         if jira_issue and "error" not in jira_issue:
             summary = jira_issue.get("summary", "")
-            description = jira_issue.get("description", "")[:500]  # 너무 길면 자르기
+            description = (jira_issue.get("description") or "")[:500]  # 너무 길면 자르기
             issue_type = jira_issue.get("issue_type", "")
             jira_context = f"""
 === Jira 이슈 정보 ({jira_key}) ===
@@ -440,12 +471,33 @@ async def create_task(request: CreateTaskRequest):
     """태스크 생성 및 워크트리 생성 (Jira 키, Notion URL 자동 감지)"""
     from state.manager import StateManager
 
+    logger.info(f"[create-task] 시작: project={request.project}, branch={request.branch}, base={request.base_branch}")
+
     sm = StateManager()
+
+    # base_branch 처리: PR URL이면 브랜치명 추출
+    base_branch = None
+    if request.base_branch:
+        pr_info = extract_pr_info(request.base_branch)
+        if pr_info:
+            owner, repo, pr_number = pr_info
+            logger.info(f"[create-task] PR URL 감지: {owner}/{repo}#{pr_number}")
+            base_branch = get_pr_head_branch(owner, repo, pr_number)
+            if base_branch:
+                logger.info(f"[create-task] PR head 브랜치: {base_branch}")
+            else:
+                logger.warning(f"[create-task] PR 브랜치 조회 실패, base_branch 그대로 사용")
+                base_branch = request.base_branch
+        else:
+            # PR URL이 아니면 브랜치명으로 사용
+            base_branch = request.base_branch
+            logger.info(f"[create-task] base_branch: {base_branch}")
 
     # 자동 감지
     jira_keys = extract_jira_keys(request.description)
     notion_urls = extract_notion_urls(request.description)
     jira_key = jira_keys[0] if jira_keys else None
+    logger.info(f"[create-task] 감지된 Jira: {jira_key}, Notion URLs: {notion_urls}")
 
     # 브랜치 이름에서 task name 추출 (feat/xxx → xxx)
     branch_parts = request.branch.split("/", 1)
@@ -459,15 +511,20 @@ async def create_task(request: CreateTaskRequest):
         branch=request.branch,
         jira_key=jira_key,
         notion_urls=notion_urls if notion_urls else None,
+        base_branch=base_branch,
     )
+    logger.info(f"[create-task] add_task 결과: {result}")
 
     if "error" in result:
+        logger.error(f"[create-task] 태스크 생성 실패: {result['error']}")
         return CreateTaskResponse(success=False, error=result["error"])
 
-    # 2. 워크트리 생성
-    worktree_result = sm.create_worktree(request.project, task_name)
+    # 2. 워크트리 생성 (base_branch 전달)
+    worktree_result = sm.create_worktree(request.project, task_name, base_branch=base_branch)
+    logger.info(f"[create-task] create_worktree 결과: {worktree_result}")
 
     if "error" in worktree_result:
+        logger.warning(f"[create-task] 워크트리 생성 실패: {worktree_result['error']}")
         return CreateTaskResponse(
             success=True,
             task_name=task_name,
@@ -478,16 +535,21 @@ async def create_task(request: CreateTaskRequest):
 
     # 3. Claude 세션 시작
     session_result = sm.start_claude_session(request.project, task_name)
+    logger.info(f"[create-task] start_claude_session 결과: {session_result}")
     claude_command = session_result.get("command") if session_result.get("success") else None
+    session_error = session_result.get("error") if not session_result.get("success") else None
 
-    return CreateTaskResponse(
+    response = CreateTaskResponse(
         success=True,
         task_name=task_name,
         worktree_path=worktree_result.get("worktree"),
         jira_key=jira_key,
         notion_urls=notion_urls,
         claude_command=claude_command,
+        error=f"태스크 생성됨, Claude 세션 실패: {session_error}" if session_error else None,
     )
+    logger.info(f"[create-task] 최종 응답: success={response.success}, error={response.error}")
+    return response
 
 
 class TaskActionRequest(BaseModel):
@@ -541,6 +603,191 @@ async def restore_task(request: TaskActionRequest):
         return TaskActionResponse(success=False, error=result["error"])
 
     return TaskActionResponse(success=True, message=f"태스크 '{request.task_name}' 복구됨")
+
+
+class ClaudeSessionResponse(BaseModel):
+    success: bool
+    message: str | None = None
+    analysis: str | None = None
+    error: str | None = None
+
+
+@app.post("/api/start-claude-session", response_model=ClaudeSessionResponse)
+async def start_claude_session(request: TaskActionRequest):
+    """태스크에 대한 Claude 세션 시작 (수동)"""
+    from state.manager import StateManager
+
+    sm = StateManager()
+    result = sm.start_claude_session(request.project, request.task_name)
+
+    if "error" in result:
+        return ClaudeSessionResponse(success=False, error=result["error"])
+
+    return ClaudeSessionResponse(
+        success=True,
+        message=result.get("message"),
+        analysis=result.get("analysis"),
+    )
+
+
+@app.post("/api/sync-projects")
+async def sync_projects():
+    """모든 프로젝트의 메인 레포를 최신으로 동기화 (git fetch + pull)"""
+    import subprocess
+    import os
+
+    from state.manager import StateManager
+
+    sm = StateManager()
+    data = sm._load()
+    results = []
+
+    for project_name, project in data.get("projects", {}).items():
+        if project.get("deleted"):
+            continue
+
+        repo_path = project.get("repo_path")
+        machine = project.get("machine", "local")
+
+        if not repo_path:
+            results.append({"project": project_name, "error": "repo_path 없음"})
+            continue
+
+        try:
+            if machine == "local" or machine == os.getenv("LOCAL_MACHINE", "nuc"):
+                # 로컬 실행 - gh CLI로 인증 설정
+                env = os.environ.copy()
+                env["GIT_ASKPASS"] = ""
+                env["GIT_TERMINAL_PROMPT"] = "0"
+
+                # gh를 credential helper로 설정하고 fetch/pull
+                subprocess.run(
+                    ["git", "-C", repo_path, "config", "credential.helper", "!gh auth git-credential"],
+                    capture_output=True, text=True, timeout=10, env=env
+                )
+                # fetch
+                subprocess.run(
+                    ["git", "-C", repo_path, "fetch", "--prune"],
+                    capture_output=True, text=True, timeout=30, env=env
+                )
+                # pull (현재 브랜치)
+                result = subprocess.run(
+                    ["git", "-C", repo_path, "pull", "--ff-only"],
+                    capture_output=True, text=True, timeout=30, env=env
+                )
+                if result.returncode == 0:
+                    results.append({"project": project_name, "success": True})
+                else:
+                    results.append({"project": project_name, "error": result.stderr.strip() or "pull 실패"})
+            else:
+                # SSH 원격 실행
+                remote_hosts = os.getenv("REMOTE_HOSTS", "")
+                host_map = {}
+                for entry in remote_hosts.split(","):
+                    if ":" in entry:
+                        alias, addr = entry.split(":", 1)
+                        host_map[alias.strip()] = addr.strip()
+
+                resolved_host = host_map.get(machine, machine)
+                remote_path = repo_path.replace("~", "$HOME")
+
+                script = f'''
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+cd {remote_path} || exit 1
+git fetch --prune
+git pull --ff-only
+'''
+                cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", resolved_host, script]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+                if result.returncode == 0:
+                    results.append({"project": project_name, "success": True})
+                else:
+                    results.append({"project": project_name, "error": result.stderr.strip() or "원격 pull 실패"})
+
+        except subprocess.TimeoutExpired:
+            results.append({"project": project_name, "error": "타임아웃"})
+        except Exception as e:
+            results.append({"project": project_name, "error": str(e)})
+
+    success_count = sum(1 for r in results if r.get("success"))
+    return {
+        "success": True,
+        "results": results,
+        "synced": success_count,
+        "total": len(results),
+    }
+
+
+class GitLogRequest(BaseModel):
+    project: str
+    limit: int = 30
+
+
+@app.post("/api/git-log")
+async def get_git_log(request: GitLogRequest):
+    """프로젝트의 git log 그래프 반환"""
+    import subprocess
+    import os
+
+    from state.manager import StateManager
+
+    sm = StateManager()
+    data = sm._load()
+
+    if request.project not in data.get("projects", {}):
+        return {"error": f"프로젝트 '{request.project}' 없음"}
+
+    project = data["projects"][request.project]
+    repo_path = project.get("repo_path")
+    machine = project.get("machine", "local")
+
+    if not repo_path:
+        return {"error": "repo_path 없음"}
+
+    try:
+        # git log --graph 명령어
+        git_cmd = [
+            "git", "-C", repo_path,
+            "log", "--graph", "--oneline", "--decorate", "--all",
+            f"-{request.limit}"
+        ]
+
+        if machine == "local" or machine == os.getenv("LOCAL_MACHINE", "nuc"):
+            # 로컬 실행
+            result = subprocess.run(
+                git_cmd,
+                capture_output=True, text=True, timeout=30
+            )
+        else:
+            # SSH 원격 실행
+            remote_hosts = os.getenv("REMOTE_HOSTS", "")
+            host_map = {}
+            for entry in remote_hosts.split(","):
+                if ":" in entry:
+                    alias, addr = entry.split(":", 1)
+                    host_map[alias.strip()] = addr.strip()
+
+            resolved_host = host_map.get(machine, machine)
+            remote_path = repo_path.replace("~", "$HOME")
+
+            script = f'''
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+cd {remote_path} || exit 1
+git log --graph --oneline --decorate --all -{request.limit}
+'''
+            cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", resolved_host, script]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            return {"success": True, "log": result.stdout}
+        else:
+            return {"error": result.stderr.strip() or "git log 실패"}
+
+    except subprocess.TimeoutExpired:
+        return {"error": "타임아웃"}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 class PRInfoRequest(BaseModel):
@@ -668,17 +915,26 @@ async def sync_task_statuses():
             pass
         return infer_github_repo(repo_path)
 
-    def get_pr_state(repo: str, branch: str) -> dict | None:
+    def get_pr_info(repo: str, branch: str) -> dict | None:
+        """PR 정보 조회 (저장용)"""
         try:
             result = subprocess.run(
                 ["gh", "pr", "list", "--repo", repo, "--head", branch,
-                 "--state", "all", "--json", "state,isDraft", "--limit", "1"],
+                 "--state", "all", "--json", "number,state,isDraft,url,title,reviewDecision", "--limit", "1"],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0 and result.stdout.strip():
                 prs = json.loads(result.stdout)
                 if prs:
-                    return prs[0]
+                    pr = prs[0]
+                    return {
+                        "number": pr.get("number"),
+                        "state": pr.get("state", "").upper(),
+                        "url": pr.get("url"),
+                        "title": pr.get("title"),
+                        "draft": pr.get("isDraft", False),
+                        "review_status": pr.get("reviewDecision"),
+                    }
         except:
             pass
         return None
@@ -688,8 +944,8 @@ async def sync_task_statuses():
         if not pr_info:
             return "in_progress"  # PR 없음
 
-        state = pr_info.get("state", "").upper()
-        is_draft = pr_info.get("isDraft", False)
+        state = pr_info.get("state", "")
+        is_draft = pr_info.get("draft", False)
 
         if state == "MERGED":
             return "completed"
@@ -719,9 +975,12 @@ async def sync_task_statuses():
             if not branch:
                 continue
 
-            pr_info = get_pr_state(repo, branch)
+            pr_info = get_pr_info(repo, branch)
             new_status = determine_status(pr_info)
             old_status = task.get("status", "pending")
+
+            # PR 정보 저장
+            task["pr"] = pr_info
 
             if new_status != old_status:
                 task["status"] = new_status
@@ -729,11 +988,12 @@ async def sync_task_statuses():
                     "project": project_name,
                     "task": task_name,
                     "old": old_status,
-                    "new": new_status
+                    "new": new_status,
+                    "pr": pr_info,
                 })
 
-    if updated:
-        sm._save(data)
+    # PR 정보는 항상 저장 (상태 변경 없어도 PR 정보 업데이트 가능)
+    sm._save(data)
 
     return {
         "success": True,

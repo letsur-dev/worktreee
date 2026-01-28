@@ -85,6 +85,7 @@ OpenWebUI / Client
 │  │   - analyze_jira_image        │  │
 │  │   - sync_task_status          │  │
 │  │   - list_branches             │  │
+│  │   - list_open_prs             │  │
 │  │   - get_notion_page           │  │
 │  │   - search_notion             │  │
 │  │   - get_task_context          │  │
@@ -194,6 +195,8 @@ PM Agent 프로젝트 목록 페이지
 - GitHub PR 배지 (상태, draft 여부, 리뷰 상태 표시)
 - Jira 링크 클릭 가능
 - **New Task 버튼**: AI 브랜치 이름 추천 → 선택 → 워크트리 생성
+- **🌲 Git 버튼**: 각 프로젝트의 git log 그래프를 터미널 스타일로 표시
+- **Git Pull 버튼**: 모든 프로젝트 메인 레포를 최신으로 동기화 (git fetch + pull)
 - **상태 동기화 버튼**: 모든 태스크 상태를 GitHub PR 기반으로 자동 업데이트
 - **태스크 관리**: 아카이브/삭제 버튼 (hover시 표시)
 - **경로 복사 버튼**: 📋 path 버튼 클릭으로 worktree 경로 클립보드 복사
@@ -222,6 +225,8 @@ Jira 그래프 목록 페이지
 
 #### GET /api/projects
 프로젝트 목록 JSON 반환
+- 각 태스크에 `pr` 필드 포함 (저장된 PR 정보)
+- PR 정보는 sync 시 업데이트됨
 
 #### GET /api/graphs
 그래프 목록 JSON 반환
@@ -250,8 +255,11 @@ AI 기반 브랜치 이름 추천
 
 #### POST /api/create-task
 태스크 생성 (워크트리 자동 생성)
-- Request: `{ "project": "...", "branch": "feat/...", "description": "..." }`
-- Response: `{ "success": true, "task_name": "...", "worktree_path": "..." }`
+- Request: `{ "project": "...", "branch": "feat/...", "description": "...", "base_branch": "..." }`
+  - `base_branch`: 선택사항. 브랜치명 또는 PR URL (예: `https://github.com/.../pull/33`)
+  - PR URL 입력 시 해당 PR의 head 브랜치를 base로 자동 사용
+- Response: `{ "success": true, "task_name": "...", "worktree_path": "...", "error": "..." }`
+- 태스크는 생성되었지만 Claude 세션 시작 실패 시 `error` 필드에 메시지 포함
 
 #### POST /api/delete-task
 태스크 완전 삭제 (워크트리 포함)
@@ -265,6 +273,28 @@ AI 기반 브랜치 이름 추천
 아카이브된 태스크 복구
 - Request: `{ "project": "...", "task_name": "..." }`
 
+#### POST /api/start-claude-session
+태스크에 대한 Claude 세션 수동 시작
+- Request: `{ "project": "...", "task_name": "..." }`
+- Response: `{ "success": true, "message": "...", "analysis": "..." }`
+- 태스크 생성 시 자동 시작되지만, 실패한 경우 수동으로 재시도 가능
+
+#### POST /api/sync-projects
+모든 프로젝트의 메인 레포를 최신으로 동기화
+- 각 프로젝트 메인 레포에서 `git fetch --prune && git pull --ff-only` 실행
+- 로컬/원격(SSH) 모두 지원
+- `gh auth git-credential`을 credential helper로 사용하여 HTTPS 인증 지원
+- Response: `{ "success": true, "results": [...], "synced": 5, "total": 6 }`
+- UI: `/projects` 페이지의 "⬇ Git Pull" 버튼
+
+#### POST /api/git-log
+프로젝트의 Git 로그 그래프 반환
+- Request: `{ "project": "...", "limit": 20 }`
+- Response: `{ "success": true, "log": "* abc1234 (HEAD -> develop) ..." }`
+- `git log --graph --oneline --decorate --all` 출력
+- 로컬/원격(SSH) 모두 지원
+- UI: `/projects` 페이지의 "🌲 Git" 버튼 클릭 시 터미널 스타일로 표시
+
 #### POST /api/pr-info
 브랜치의 GitHub PR 정보 조회
 - Request: `{ "repo_path": "...", "branch": "..." }`
@@ -276,7 +306,9 @@ AI 기반 브랜치 이름 추천
   - PR 없음 또는 draft → `in_progress`
   - PR open (not draft) → `in_review`
   - PR merged → `completed`
+- **PR 정보 저장**: 조회된 PR 정보(number, url, state, draft, review_status)가 각 태스크에 저장됨
 - Response: `{ "success": true, "updated": [...], "count": 11 }`
+- 저장된 PR 정보는 `/api/projects` 응답에 포함되어 페이지 로딩 속도 개선
 
 ## PM Tools
 
@@ -319,6 +351,7 @@ AI 기반 브랜치 이름 추천
 - `context`: 태스크 컨텍스트 (필수)
 - `jira_key`: 연결할 Jira 이슈 키 (선택, 예: PRDEL-107)
 - `notion_urls`: 연결할 Notion 문서 URL 목록 (선택)
+- `base_branch`: 워크트리 생성 시 base 브랜치 (선택, 브랜치명 또는 PR URL)
 
 **브랜치 네이밍 규칙 (필수):**
 - prefix 필수: `feat/`, `fix/`, `chore/`, `refactor/`, `docs/`, `test/`
@@ -373,6 +406,7 @@ Documents 하위에서 Git 프로젝트 스캔
 기존 태스크에 Git worktree 생성 (태스크 생성시 자동 호출됨)
 - `project`: 프로젝트 이름 (필수)
 - `task_name`: 태스크 이름 (필수)
+- `base_branch`: 새 브랜치 생성 시 base (선택)
 
 워크트리 구조 (flat + 해시):
 ```
@@ -383,6 +417,9 @@ Documents 하위에서 Git 프로젝트 스캔
 ```
 - **폴더명**: task_name 기반 (`/`는 `-`로 변환)
 - **브랜치명**: branch 파라미터 사용 (feature/PROJ-123/xxx 형태 가능)
+- **새 브랜치 기준**:
+  - `base_branch` 지정 시: 해당 브랜치 사용 (자동으로 `origin/` prefix 추가)
+  - 미지정 시: `origin/develop` (없으면 `origin/main`) 기준으로 생성
 - 7자 해시 suffix 추가 (동일 이름 재생성 가능)
 - 생성 전 `git fetch origin` 자동 실행
 
@@ -406,10 +443,14 @@ Documents 하위에서 Git 프로젝트 스캔
 - `task_name`: 태스크 이름 (필수)
 
 동작:
-1. 워크트리에서 `claude -p "..." --print` 실행
-2. 레포 분석 및 태스크 컨텍스트 이해
-3. 세션 정보 저장 (호스트와 공유)
-4. 사용자가 `claude --continue`로 이어서 작업
+1. **Jira 티켓 조회** (직접 API 호출 - MCP 없이 안정적)
+   - `jira_key`가 있으면 티켓 내용을 프롬프트에 포함
+2. **Notion 문서 조회** (MCP 사용 - 실패 시 무시)
+   - `notion_urls`가 있으면 최대 3개 문서 내용 포함
+3. 워크트리에서 `claude -p "..." --print` 실행
+4. 레포 분석 및 태스크 컨텍스트 이해
+5. 세션 정보 저장 (호스트와 공유)
+6. 사용자가 `claude --continue`로 이어서 작업
 
 > **Note**: create_task 호출 시 자동으로 실행됨
 
@@ -467,6 +508,14 @@ PR 상태에 따라: OPEN → in_review, MERGED → completed
 - `project`: 프로젝트 이름 (필수)
 - `pattern`: 브랜치 필터 패턴 (선택, 예: feature/)
 - `remote_only`: 리모트 브랜치만 조회 (기본: false)
+
+### list_open_prs
+프로젝트의 열린 GitHub PR 목록 조회
+- `project`: 프로젝트 이름 (필수)
+- `author`: 작성자 필터 (선택, 예: @me)
+
+반환: PR 번호, 제목, 브랜치명, URL, draft 여부, 작성자
+> **Note**: machine 설정과 관계없이 항상 로컬에서 `gh pr list --repo` 실행
 
 ### get_notion_page
 Notion 페이지 내용 조회 (OAuth 토큰 사용)

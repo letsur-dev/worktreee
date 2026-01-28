@@ -507,6 +507,28 @@ TOOLS = [
             },
         },
     },
+    # GitHub PR 목록 조회
+    {
+        "type": "function",
+        "function": {
+            "name": "list_open_prs",
+            "description": "프로젝트의 열린 GitHub PR 목록을 조회합니다. PR 번호, 제목, 브랜치명, 작성자 등을 확인할 수 있습니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "description": "프로젝트 이름",
+                    },
+                    "author": {
+                        "type": "string",
+                        "description": "작성자로 필터링 (선택, 예: @me)",
+                    },
+                },
+                "required": ["project"],
+            },
+        },
+    },
     # Notion 연동
     {
         "type": "function",
@@ -697,6 +719,12 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             result = state_manager.search_notion(
                 query=arguments["query"],
                 page_url=arguments.get("page_url"),
+            )
+        # GitHub PR 도구
+        elif name == "list_open_prs":
+            result = state_manager.list_open_prs(
+                project=arguments["project"],
+                author=arguments.get("author"),
             )
         else:
             result = {"error": f"알 수 없는 도구: {name}"}

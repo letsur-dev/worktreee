@@ -138,6 +138,7 @@ class StateManager:
         worktree: str | None = None,
         jira_key: str | None = None,
         notion_urls: list[str] | None = None,
+        base_branch: str | None = None,
     ) -> dict:
         data = self._load()
         if project not in data["projects"]:
@@ -163,6 +164,10 @@ class StateManager:
         # Notion 문서 연결
         if notion_urls:
             task_data["notion_urls"] = notion_urls
+
+        # Base 브랜치 저장 (PR 생성 시 사용)
+        if base_branch:
+            task_data["base_branch"] = base_branch
 
         proj.setdefault("tasks", {})[task_name] = task_data
         self._save(data)
@@ -561,7 +566,7 @@ git worktree remove "{worktree_path}" --force
         # feature/PROJ-123/auth -> feature-PROJ-123-auth
         return branch.replace("/", "-").replace("\\", "-")
 
-    def create_worktree(self, project: str, task_name: str) -> dict:
+    def create_worktree(self, project: str, task_name: str, base_branch: str | None = None) -> dict:
         """태스크용 Git worktree를 생성합니다."""
         data = self._load()
         if project not in data["projects"]:
@@ -578,6 +583,8 @@ git worktree remove "{worktree_path}" --force
         repo_path = proj["repo_path"]
         machine = proj.get("machine", "local")
         branch = task.get("branch", task_name)
+        # base_branch: 파라미터 > task에 저장된 값 > None (기본값 사용)
+        base = base_branch or task.get("base_branch")
         # 워크트리 폴더명: task_name 사용 (사용자가 지정한 그대로)
         # 브랜치명: branch 필드 사용 (feature/PROJ-123/xxx 형태 가능)
         folder_name = self._sanitize_branch_name(task_name)  # task_name 기반 폴더명
@@ -591,13 +598,13 @@ git worktree remove "{worktree_path}" --force
         # "local" 또는 local_machine 설정값(기본: "nuc")이면 로컬 실행
         is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
         if is_local:
-            result = self._create_worktree_local(repo_path, worktree_path, branch)
+            result = self._create_worktree_local(repo_path, worktree_path, branch, base)
         else:
             # machine이 호스트 별칭이거나 직접 주소
             resolved_host = self._resolve_host(machine)
             if isinstance(resolved_host, dict):  # 에러
                 return resolved_host
-            result = self._create_worktree_remote(repo_path, worktree_path, branch, resolved_host)
+            result = self._create_worktree_remote(repo_path, worktree_path, branch, resolved_host, base)
 
         if "error" in result:
             return result
@@ -613,8 +620,12 @@ git worktree remove "{worktree_path}" --force
             "branch": branch,
         }
 
-    def _create_worktree_local(self, repo_path: str, worktree_path: str, branch: str) -> dict:
-        """로컬에서 Git worktree 생성"""
+    def _create_worktree_local(self, repo_path: str, worktree_path: str, branch: str, base: str | None = None) -> dict:
+        """로컬에서 Git worktree 생성
+
+        Args:
+            base: 새 브랜치 생성 시 사용할 base 브랜치 (없으면 origin/develop 또는 origin/main)
+        """
         try:
             # 이미 워크트리가 있는지 확인
             if os.path.exists(worktree_path):
@@ -652,7 +663,20 @@ git worktree remove "{worktree_path}" --force
                 cmd = ["git", "-C", repo_path, "worktree", "add", worktree_path, branch]
             else:
                 # 새 브랜치 생성하며 워크트리 생성
-                cmd = ["git", "-C", repo_path, "worktree", "add", "-b", branch, worktree_path]
+                # base가 지정되면 사용, 아니면 origin/develop 또는 origin/main
+                if base:
+                    # base가 origin/ 없이 들어오면 origin/ 추가
+                    base_branch = base if base.startswith("origin/") else f"origin/{base}"
+                else:
+                    base_branch = "origin/develop"
+                    check_develop = subprocess.run(
+                        ["git", "-C", repo_path, "rev-parse", "--verify", "origin/develop"],
+                        capture_output=True, text=True
+                    )
+                    if check_develop.returncode != 0:
+                        # develop 없으면 main 사용
+                        base_branch = "origin/main"
+                cmd = ["git", "-C", repo_path, "worktree", "add", "-b", branch, worktree_path, base_branch]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
@@ -664,14 +688,29 @@ git worktree remove "{worktree_path}" --force
         except Exception as e:
             return {"error": str(e)}
 
-    def _create_worktree_remote(self, repo_path: str, worktree_path: str, branch: str, host: str) -> dict:
-        """SSH로 원격에서 Git worktree 생성"""
+    def _create_worktree_remote(self, repo_path: str, worktree_path: str, branch: str, host: str, base: str | None = None) -> dict:
+        """SSH로 원격에서 Git worktree 생성
+
+        Args:
+            base: 새 브랜치 생성 시 사용할 base 브랜치 (없으면 origin/develop 또는 origin/main)
+        """
         # 원격 경로에서 ~ 처리
         repo_path = repo_path.replace("~", "$HOME")
         worktree_path = worktree_path.replace("~", "$HOME")
 
         # worktrees 디렉토리 경로
         worktrees_dir = os.path.dirname(worktree_path)
+
+        # base 브랜치 결정 로직
+        if base:
+            base_ref = base if base.startswith("origin/") else f"origin/{base}"
+            base_logic = f'git worktree add -b {branch} "{worktree_path}" {base_ref}'
+        else:
+            base_logic = f'''if git rev-parse --verify origin/develop >/dev/null 2>&1; then
+        git worktree add -b {branch} "{worktree_path}" origin/develop
+    else
+        git worktree add -b {branch} "{worktree_path}" origin/main
+    fi'''
 
         # 브랜치 존재 여부 확인 후 워크트리 생성하는 스크립트
         script = f'''
@@ -688,7 +727,8 @@ git fetch origin
 if git rev-parse --verify {branch} >/dev/null 2>&1 || git rev-parse --verify origin/{branch} >/dev/null 2>&1; then
     git worktree add "{worktree_path}" {branch}
 else
-    git worktree add -b {branch} "{worktree_path}"
+    # 새 브랜치 생성
+    {base_logic}
 fi
 '''
         cmd = [
@@ -834,6 +874,36 @@ echo "Rebase 완료: origin/{base_branch}"
 
         context = task.get("context", "")
         branch = task.get("branch", task_name)
+        jira_key = task.get("jira_key")
+        notion_urls = task.get("notion_urls", [])
+
+        # Jira 티켓 내용 가져오기 (직접 API 호출 - 안정적)
+        jira_content = ""
+        if jira_key:
+            try:
+                jira_result = self.get_jira_issue(jira_key, include_children=True, recursive=False, fetch_notion=False)
+                if jira_result.get("formatted"):
+                    jira_content = f"\n## Jira 티켓 ({jira_key})\n{jira_result['formatted']}\n"
+            except Exception as e:
+                jira_content = f"\n## Jira 티켓 ({jira_key})\n조회 실패: {str(e)}\n"
+
+        # Notion 문서 내용 가져오기 (MCP 사용 - 실패 시 무시)
+        notion_content = ""
+        if notion_urls:
+            notion_parts = []
+            for url in notion_urls[:3]:  # 최대 3개
+                try:
+                    notion_result = self.get_notion_page(url)
+                    if notion_result.get("content"):
+                        # 내용이 너무 길면 자르기
+                        content = notion_result["content"]
+                        if len(content) > 3000:
+                            content = content[:3000] + "\n\n... (내용 생략)"
+                        notion_parts.append(f"### Notion 문서\n{content}")
+                except Exception:
+                    pass  # Notion MCP 실패 시 무시
+            if notion_parts:
+                notion_content = "\n" + "\n\n".join(notion_parts) + "\n"
 
         # Claude에게 전달할 프롬프트
         prompt = f"""이 레포지토리를 분석하고 다음 태스크를 이해해주세요.
@@ -845,7 +915,7 @@ echo "Rebase 완료: origin/{base_branch}"
 
 ## 태스크 컨텍스트
 {context}
-
+{jira_content}{notion_content}
 ## 요청사항
 1. 레포지토리 구조를 파악해주세요
 2. 태스크 수행에 필요한 파일들을 찾아주세요
@@ -2747,6 +2817,85 @@ git fetch --prune 2>/dev/null
             }
 
         return {"error": "검색 결과가 없습니다.", "raw": result}
+
+    def list_open_prs(self, project: str, author: str | None = None) -> dict:
+        """프로젝트의 열린 GitHub PR 목록을 조회합니다.
+
+        GitHub API는 어디서든 호출 가능하므로, machine 설정과 관계없이
+        항상 로컬에서 `gh pr list --repo` 명령으로 조회합니다.
+        """
+        import re
+        data = self._load()
+        if project not in data["projects"]:
+            return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
+
+        proj = data["projects"][project]
+        if proj.get("deleted"):
+            return {"error": f"프로젝트 '{project}'은(는) 삭제된 상태입니다."}
+
+        repo_path = proj["repo_path"]
+
+        # GitHub repo 추론 (경로에서)
+        # 예: /Users/amos/Documents/letsur/lamp-web -> letsur-dev/lamp-web
+        # 예: /home/amos/Documents/letsur/letsur-gateway -> letsur-dev/letsur-gateway
+        def infer_repo_from_path(path: str) -> str | None:
+            # letsur 프로젝트 패턴
+            match = re.search(r'/letsur/([^/]+)(?:-worktrees)?$', path)
+            if match:
+                repo_name = match.group(1)
+                # lamp-web -> letsur-platform-web 매핑
+                if repo_name == "lamp-web":
+                    return "letsur-dev/letsur-platform-web"
+                return f"letsur-dev/{repo_name}"
+            return None
+
+        repo = infer_repo_from_path(repo_path)
+        if not repo:
+            return {"error": f"GitHub repo를 추론할 수 없습니다: {repo_path}"}
+
+        try:
+            cmd = [
+                "gh", "pr", "list",
+                "--repo", repo,
+                "--state", "open",
+                "--json", "number,title,headRefName,url,state,isDraft,author",
+                "--limit", "20"
+            ]
+            if author:
+                cmd.extend(["--author", author])
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+
+            if result.returncode != 0:
+                return {"error": f"gh pr list 실패: {result.stderr}"}
+
+            import json as json_module
+            prs_data = json_module.loads(result.stdout) if result.stdout.strip() else []
+
+            prs = [
+                {
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "branch": pr["headRefName"],
+                    "url": pr["url"],
+                    "draft": pr.get("isDraft", False),
+                    "author": pr.get("author", {}).get("login") if pr.get("author") else None,
+                }
+                for pr in prs_data
+            ]
+
+            return {
+                "success": True,
+                "project": project,
+                "repo": repo,
+                "count": len(prs),
+                "prs": prs
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"error": "Timeout"}
+        except Exception as e:
+            return {"error": str(e)}
 
 
 # 싱글톤 인스턴스

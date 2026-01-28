@@ -97,47 +97,9 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// PR 정보 캐시
-const prCache = new Map<string, PRInfo>();
-
-function PRBadge({ repoPath, branch }: { repoPath: string; branch: string }) {
-  const [prInfo, setPrInfo] = useState<PRInfo | null>(null);
-  const [loading, setLoading] = useState(false);
-  const cacheKey = `${repoPath}:${branch}`;
-
-  useEffect(() => {
-    // 캐시에 있으면 바로 사용
-    if (prCache.has(cacheKey)) {
-      setPrInfo(prCache.get(cacheKey)!);
-      return;
-    }
-
-    const fetchPR = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/pr-info", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repo_path: repoPath, branch }),
-        });
-        const data = await res.json();
-        prCache.set(cacheKey, data);
-        setPrInfo(data);
-      } catch {
-        setPrInfo({ error: "Failed" });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPR();
-  }, [repoPath, branch, cacheKey]);
-
-  if (loading) {
-    return <span className="text-xs text-gray-500">...</span>;
-  }
-
-  if (!prInfo || prInfo.error || !prInfo.number) {
+// PR 배지 (저장된 PR 정보 사용)
+function PRBadge({ pr }: { pr?: PRInfo | null }) {
+  if (!pr || !pr.number) {
     return null; // PR 없음
   }
 
@@ -155,23 +117,61 @@ function PRBadge({ repoPath, branch }: { repoPath: string; branch: string }) {
 
   return (
     <Link
-      href={prInfo.url || "#"}
+      href={pr.url || "#"}
       target="_blank"
       rel="noopener noreferrer"
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs hover:opacity-80 transition ${
-        stateStyles[prInfo.state || "OPEN"]
+        stateStyles[pr.state || "OPEN"]
       }`}
     >
-      <span>PR #{prInfo.number}</span>
-      {prInfo.draft && <span className="text-gray-400">(Draft)</span>}
-      {prInfo.review_status && (
-        <span className={reviewStyles[prInfo.review_status] || ""}>
-          {prInfo.review_status === "APPROVED" && "✓"}
-          {prInfo.review_status === "CHANGES_REQUESTED" && "✗"}
-          {prInfo.review_status === "REVIEW_REQUIRED" && "○"}
+      <span>PR #{pr.number}</span>
+      {pr.draft && <span className="text-gray-400">(Draft)</span>}
+      {pr.review_status && (
+        <span className={reviewStyles[pr.review_status] || ""}>
+          {pr.review_status === "APPROVED" && "✓"}
+          {pr.review_status === "CHANGES_REQUESTED" && "✗"}
+          {pr.review_status === "REVIEW_REQUIRED" && "○"}
         </span>
       )}
     </Link>
+  );
+}
+
+interface ConfirmModalProps {
+  title: string;
+  message: string;
+  confirmText?: string;
+  confirmColor?: "red" | "blue";
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmModal({ title, message, confirmText = "확인", confirmColor = "blue", onConfirm, onCancel }: ConfirmModalProps) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
+      <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
+        <p className="text-gray-300 mb-6 whitespace-pre-line">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-gray-400 hover:bg-gray-700 rounded transition"
+          >
+            취소
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-4 py-2 text-sm rounded transition ${
+              confirmColor === "red"
+                ? "bg-red-600 hover:bg-red-700 text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
+            }`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -183,9 +183,10 @@ interface TaskActionsProps {
 
 function TaskActions({ project, task, onUpdated }: TaskActionsProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"archive" | "delete" | null>(null);
 
-  const handleArchive = async () => {
-    if (!confirm(`'${task.name}' 태스크를 아카이브하시겠습니까?`)) return;
+  const executeArchive = async () => {
+    setConfirmAction(null);
     setIsLoading(true);
     try {
       const res = await fetch("/api/archive-task", {
@@ -213,8 +214,8 @@ function TaskActions({ project, task, onUpdated }: TaskActionsProps) {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`'${task.name}' 태스크를 완전히 삭제하시겠습니까?\n워크트리도 함께 삭제됩니다.`)) return;
+  const executeDelete = async () => {
+    setConfirmAction(null);
     setIsLoading(true);
     try {
       const res = await fetch("/api/delete-task", {
@@ -234,38 +235,72 @@ function TaskActions({ project, task, onUpdated }: TaskActionsProps) {
 
   if (task.archived_at) {
     return (
-      <div className="flex gap-1 ml-auto">
+      <>
+        {confirmAction === "delete" && (
+          <ConfirmModal
+            title="태스크 삭제"
+            message={`'${task.name}' 태스크를 완전히 삭제하시겠습니까?\n워크트리도 함께 삭제됩니다.`}
+            confirmText="삭제"
+            confirmColor="red"
+            onConfirm={executeDelete}
+            onCancel={() => setConfirmAction(null)}
+          />
+        )}
+        <div className="flex gap-1 ml-auto">
+          <button
+            onClick={handleRestore}
+            className="px-2 py-0.5 text-xs text-blue-400 hover:bg-blue-600/20 rounded transition"
+          >
+            복구
+          </button>
+          <button
+            onClick={() => setConfirmAction("delete")}
+            className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-600/20 rounded transition"
+          >
+            삭제
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {confirmAction === "archive" && (
+        <ConfirmModal
+          title="태스크 아카이브"
+          message={`'${task.name}' 태스크를 아카이브하시겠습니까?`}
+          confirmText="아카이브"
+          confirmColor="blue"
+          onConfirm={executeArchive}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === "delete" && (
+        <ConfirmModal
+          title="태스크 삭제"
+          message={`'${task.name}' 태스크를 완전히 삭제하시겠습니까?\n워크트리도 함께 삭제됩니다.`}
+          confirmText="삭제"
+          confirmColor="red"
+          onConfirm={executeDelete}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
         <button
-          onClick={handleRestore}
-          className="px-2 py-0.5 text-xs text-blue-400 hover:bg-blue-600/20 rounded transition"
+          onClick={() => setConfirmAction("archive")}
+          className="px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700 rounded transition"
         >
-          복구
+          아카이브
         </button>
         <button
-          onClick={handleDelete}
+          onClick={() => setConfirmAction("delete")}
           className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-600/20 rounded transition"
         >
           삭제
         </button>
       </div>
-    );
-  }
-
-  return (
-    <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-      <button
-        onClick={handleArchive}
-        className="px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700 rounded transition"
-      >
-        아카이브
-      </button>
-      <button
-        onClick={handleDelete}
-        className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-600/20 rounded transition"
-      >
-        삭제
-      </button>
-    </div>
+    </>
   );
 }
 
@@ -283,6 +318,7 @@ interface CreateResult {
 
 function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
   const [description, setDescription] = useState("");
+  const [baseBranch, setBaseBranch] = useState("");  // base 브랜치 또는 PR URL
   const [suggestions, setSuggestions] = useState<BranchSuggestion[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [detectedJiraKeys, setDetectedJiraKeys] = useState<string[]>([]);
@@ -321,7 +357,7 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
   };
 
   const handleCreate = async () => {
-    if (!selectedBranch) return;
+    if (!selectedBranch || isCreating) return;
 
     setIsCreating(true);
     setError(null);
@@ -334,9 +370,11 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
           project: project.name,
           branch: selectedBranch,
           description,
+          base_branch: baseBranch || null,
         }),
       });
       const data = await res.json();
+      console.log("[create-task] 응답:", data);
 
       if (data.success) {
         onCreated();
@@ -345,10 +383,17 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
           worktree_path: data.worktree_path,
           claude_command: data.claude_command,
         });
+        // success=true이지만 warning이 있는 경우 (워크트리 실패, Claude 세션 실패 등)
+        if (data.error) {
+          console.warn("[create-task] 경고:", data.error);
+          setError(data.error);
+        }
       } else {
+        console.error("[create-task] 실패:", data.error);
         setError(data.error || "생성에 실패했습니다.");
       }
     } catch (e) {
+      console.error("[create-task] 예외:", e);
       setError("생성에 실패했습니다.");
     } finally {
       setIsCreating(false);
@@ -425,6 +470,22 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
             className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-500 resize-none"
             rows={3}
           />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm text-gray-300 mb-2">
+            Base 브랜치 <span className="text-gray-500">(선택)</span>
+          </label>
+          <input
+            type="text"
+            value={baseBranch}
+            onChange={(e) => setBaseBranch(e.target.value)}
+            placeholder="예: feature/xxx 또는 https://github.com/.../pull/123"
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm"
+          />
+          <div className="text-xs text-gray-500 mt-1">
+            PR URL 입력 시 해당 PR의 브랜치를 base로 사용
+          </div>
         </div>
 
         <button
@@ -553,6 +614,79 @@ const sortByOrder = (projects: Project[], order: string[]): Project[] => {
   });
 };
 
+// Git Log 터미널 패널
+function GitLogPanel({ projectName }: { projectName: string }) {
+  const [log, setLog] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLog = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/git-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project: projectName, limit: 20 }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setLog(data.log);
+        } else {
+          setError(data.error);
+        }
+      } catch {
+        setError("Failed to fetch git log");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLog();
+  }, [projectName]);
+
+  if (loading) {
+    return (
+      <div className="bg-gray-950 rounded-lg p-4 font-mono text-xs text-gray-500">
+        Loading git log...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-gray-950 rounded-lg p-4 font-mono text-xs text-red-400">
+        Error: {error}
+      </div>
+    );
+  }
+
+  // 색상 파싱: 브랜치 이름, 커밋 해시 등
+  const colorize = (line: string) => {
+    // 그래프 문자: * | / \
+    // 커밋 해시: 7자 영숫자
+    // 브랜치 이름: (HEAD -> develop, origin/develop)
+
+    return line
+      .replace(/^([*|\\\/\s]+)/, '<span class="text-yellow-500">$1</span>') // 그래프
+      .replace(/\b([a-f0-9]{7,8})\b/, '<span class="text-green-400">$1</span>') // 해시
+      .replace(/\(([^)]+)\)/, '<span class="text-cyan-400">($1)</span>'); // 브랜치/태그
+  };
+
+  return (
+    <div className="bg-gray-950 rounded-lg p-4 font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto">
+      <pre className="text-gray-300 leading-relaxed">
+        {log?.split('\n').map((line, i) => (
+          <div
+            key={i}
+            dangerouslySetInnerHTML={{ __html: colorize(line) }}
+            className="hover:bg-gray-900/50"
+          />
+        ))}
+      </pre>
+    </div>
+  );
+}
+
 // Sortable 프로젝트 카드 컴포넌트
 interface SortableProjectCardProps {
   project: Project;
@@ -569,6 +703,8 @@ function SortableProjectCard({
   onNewTask,
   onTaskUpdated,
 }: SortableProjectCardProps) {
+  const [showGitLog, setShowGitLog] = useState(false);
+
   const {
     attributes,
     listeners,
@@ -639,6 +775,17 @@ function SortableProjectCard({
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500">{project.machine}</span>
           <button
+            onClick={() => setShowGitLog(!showGitLog)}
+            className={`px-3 py-1 text-xs font-medium rounded-lg transition ${
+              showGitLog
+                ? "bg-green-600 hover:bg-green-700 text-white"
+                : "bg-gray-700 hover:bg-gray-600 text-gray-300"
+            }`}
+            title="Git 로그 보기"
+          >
+            🌲 Git
+          </button>
+          <button
             onClick={onNewTask}
             className="px-3 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg transition"
           >
@@ -646,6 +793,12 @@ function SortableProjectCard({
           </button>
         </div>
       </div>
+
+      {showGitLog && (
+        <div className="px-5 pb-3">
+          <GitLogPanel projectName={project.name} />
+        </div>
+      )}
 
       {!isCollapsed && (
         <div className="px-5 pb-5">
@@ -672,7 +825,7 @@ function SortableProjectCard({
                         {task.jira_key}
                       </Link>
                     )}
-                    <PRBadge repoPath={project.repo_path} branch={task.branch} />
+                    <PRBadge pr={task.pr} />
                     <TaskActions
                       project={project.name}
                       task={task}
@@ -705,6 +858,8 @@ export default function ProjectsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ count: number } | null>(null);
+  const [isSyncingProjects, setIsSyncingProjects] = useState(false);
+  const [syncProjectsResult, setSyncProjectsResult] = useState<{ synced: number; total: number } | null>(null);
   const [modalProject, setModalProject] = useState<Project | null>(null);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [storageLoaded, setStorageLoaded] = useState(false);
@@ -796,8 +951,7 @@ export default function ProjectsPage() {
       if (res.ok) {
         const data = await res.json();
         setSyncResult({ count: data.count });
-        // PR 캐시 초기화 및 프로젝트 다시 로드
-        prCache.clear();
+        // 프로젝트 다시 로드 (PR 정보가 sync 시 저장됨)
         await fetchProjects();
       }
     } catch (e) {
@@ -806,6 +960,23 @@ export default function ProjectsPage() {
       setIsSyncing(false);
       // 3초 후 결과 숨기기
       setTimeout(() => setSyncResult(null), 3000);
+    }
+  };
+
+  const syncProjects = async () => {
+    setIsSyncingProjects(true);
+    setSyncProjectsResult(null);
+    try {
+      const res = await fetch("/api/sync-projects", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSyncProjectsResult({ synced: data.synced, total: data.total });
+      }
+    } catch (e) {
+      console.error("Failed to sync projects:", e);
+    } finally {
+      setIsSyncingProjects(false);
+      setTimeout(() => setSyncProjectsResult(null), 3000);
     }
   };
 
@@ -834,15 +1005,36 @@ export default function ProjectsPage() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          {syncProjectsResult && (
+            <span className="text-xs text-blue-400">
+              {syncProjectsResult.synced}/{syncProjectsResult.total} 레포 동기화됨
+            </span>
+          )}
           {syncResult && (
             <span className="text-xs text-success-400">
               {syncResult.count}개 상태 업데이트됨
             </span>
           )}
           <button
+            onClick={syncProjects}
+            disabled={isSyncingProjects}
+            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-500 text-gray-200 text-xs font-medium rounded-lg transition flex items-center gap-2"
+            title="모든 프로젝트 메인 레포를 git pull로 최신화"
+          >
+            {isSyncingProjects ? (
+              <>
+                <span className="animate-spin">↻</span>
+                Pull 중...
+              </>
+            ) : (
+              <>⬇ Git Pull</>
+            )}
+          </button>
+          <button
             onClick={syncStatuses}
             disabled={isSyncing}
             className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-gray-200 text-xs font-medium rounded-lg transition flex items-center gap-2"
+            title="모든 태스크 상태를 PR 기반으로 동기화"
           >
             {isSyncing ? (
               <>
