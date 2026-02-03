@@ -962,11 +962,13 @@ echo "Rebase 완료: origin/{base_branch}"
         # Claude 세션을 백그라운드에서 시작 (Popen으로 비동기 실행)
         try:
             # 백그라운드에서 Claude 실행 - 기다리지 않고 바로 반환
+            # --dangerously-skip-permissions: 신뢰 질문 등으로 인한 블로킹 방지
             subprocess.Popen(
-                ["claude", "-p", prompt, "--print"],
+                ["claude", "-p", prompt, "--print", "--dangerously-skip-permissions"],
                 cwd=worktree_path,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL, # 입력 대기 원천 차단
                 start_new_session=True,  # 부모 프로세스와 분리
             )
         except FileNotFoundError:
@@ -1002,7 +1004,7 @@ elif [ -f "$HOME/.bashrc" ]; then
 fi
 
 cd {worktree_path} || exit 1
-claude -p '{escaped_prompt}' --print
+claude -p '{escaped_prompt}' --print --dangerously-skip-permissions
 '''
         cmd = [
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
