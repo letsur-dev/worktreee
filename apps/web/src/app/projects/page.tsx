@@ -179,9 +179,11 @@ interface TaskActionsProps {
   project: string;
   task: Task;
   onUpdated: () => void;
+  onOpenIDE: (projectName: string, projectPath: string) => void;
+  isOpeningIDE: boolean;
 }
 
-function TaskActions({ project, task, onUpdated }: TaskActionsProps) {
+function TaskActions({ project, task, onUpdated, onOpenIDE, isOpeningIDE }: TaskActionsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"archive" | "delete" | null>(null);
 
@@ -287,6 +289,16 @@ function TaskActions({ project, task, onUpdated }: TaskActionsProps) {
         />
       )}
       <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+        {task.worktree && (
+          <button
+            onClick={() => onOpenIDE(project, task.worktree!)}
+            disabled={isOpeningIDE}
+            className="px-2 py-0.5 text-xs text-brand-400 hover:bg-brand-600/20 rounded transition disabled:opacity-50"
+            title="IntelliJ에서 열기"
+          >
+            🛋️
+          </button>
+        )}
         <button
           onClick={() => setConfirmAction("archive")}
           className="px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700 rounded transition"
@@ -325,7 +337,9 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
   const [detectedNotionUrls, setDetectedNotionUrls] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
 
   const handleSuggest = async () => {
@@ -333,6 +347,8 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
 
     setIsLoading(true);
     setError(null);
+    setStreamingMessage(null);
+    setWarning(null);
     setSuggestions([]);
     setSelectedBranch(null);
 
@@ -361,42 +377,65 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
 
     setIsCreating(true);
     setError(null);
+    setWarning(null);
+    setStreamingMessage("준비 중...");
 
     try {
-      const res = await fetch("/api/create-task", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project: project.name,
-          branch: selectedBranch,
-          description,
-          base_branch: baseBranch || null,
-        }),
+      const params = new URLSearchParams({
+        project: project.name,
+        branch: selectedBranch,
+        description,
+        base_branch: baseBranch || "",
       });
-      const data = await res.json();
-      console.log("[create-task] 응답:", data);
 
-      if (data.success) {
-        onCreated();
-        setCreateResult({
-          task_name: data.task_name,
-          worktree_path: data.worktree_path,
-          claude_command: data.claude_command,
-        });
-        // success=true이지만 warning이 있는 경우 (워크트리 실패, Claude 세션 실패 등)
-        if (data.error) {
-          console.warn("[create-task] 경고:", data.error);
-          setError(data.error);
+      const response = await fetch(`/api/create-task-stream?${params.toString()}`);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("스트림을 읽을 수 없습니다.");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.trim().startsWith("data: ")) {
+            const data = JSON.parse(line.trim().slice(6));
+            
+            if (data.type === "info") {
+              setStreamingMessage(data.message);
+            } else if (data.type === "warning") {
+              setWarning(data.message);
+            } else if (data.type === "error") {
+              setError(data.message);
+              setIsCreating(false);
+              return;
+            } else if (data.type === "done") {
+              onCreated();
+              setCreateResult({
+                task_name: data.task_name,
+                worktree_path: data.worktree_path,
+                claude_command: data.claude_command,
+              });
+              if (data.warning) setWarning(data.warning);
+              setIsCreating(false);
+              setStreamingMessage(null);
+              return;
+            }
+          }
         }
-      } else {
-        console.error("[create-task] 실패:", data.error);
-        setError(data.error || "생성에 실패했습니다.");
       }
     } catch (e) {
       console.error("[create-task] 예외:", e);
-      setError("생성에 실패했습니다.");
+      setError("생성 중 오류가 발생했습니다.");
     } finally {
       setIsCreating(false);
+      setStreamingMessage(null);
     }
   };
 
@@ -562,6 +601,19 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
           </div>
         )}
 
+        {warning && (
+          <div className="mb-4 p-3 bg-warning-600/20 border border-warning-600 rounded-lg text-sm text-warning-400">
+            ⚠️ {warning}
+          </div>
+        )}
+
+        {isCreating && streamingMessage && (
+          <div className="mb-4 flex items-center gap-2 text-sm text-gray-400 animate-pulse">
+            <span className="w-2 h-2 bg-brand-500 rounded-full"></span>
+            {streamingMessage}
+          </div>
+        )}
+
         <div className="flex gap-3">
           {suggestions.length > 0 && (
             <button
@@ -582,6 +634,132 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
         </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+interface NewProjectModalProps {
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function NewProjectModal({ onClose, onCreated }: NewProjectModalProps) {
+  const [repoPath, setRepoPath] = useState("");
+  const [machine, setMachine] = useState("nuc");
+  const [title, setTitle] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    if (!repoPath.trim() || isCreating) return;
+
+    setIsCreating(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/add-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo_path: repoPath.trim(),
+          machine,
+          title: title.trim() || null,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        onCreated();
+        onClose();
+      } else {
+        setError(data.error || "생성에 실패했습니다.");
+      }
+    } catch {
+      setError("생성에 실패했습니다.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-gray-900 rounded-xl p-6 w-[500px] border border-gray-700 shadow-2xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-100">New Project</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-200 transition"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">
+              Git 레포 경로 <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={repoPath}
+              onChange={(e) => setRepoPath(e.target.value)}
+              placeholder="예: /home/amos/Documents/my-project"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">머신</label>
+            <select
+              value={machine}
+              onChange={(e) => setMachine(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 focus:outline-none focus:border-brand-500 text-sm"
+            >
+              <option value="nuc">nuc</option>
+              <option value="mac">mac</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">
+              표시 제목 <span className="text-gray-500">(선택)</span>
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="예: My Project"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 p-3 bg-error-600/20 border border-error-600 rounded-lg text-sm text-error-400">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={!repoPath.trim() || isCreating}
+            className="flex-1 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition"
+          >
+            {isCreating ? "생성 중..." : "생성"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -694,6 +872,8 @@ interface SortableProjectCardProps {
   onToggleCollapse: () => void;
   onNewTask: () => void;
   onTaskUpdated: () => void;
+  onOpenIDE: (projectName: string, projectPath: string) => void;
+  isOpeningIDE: boolean;
 }
 
 function SortableProjectCard({
@@ -702,6 +882,8 @@ function SortableProjectCard({
   onToggleCollapse,
   onNewTask,
   onTaskUpdated,
+  onOpenIDE,
+  isOpeningIDE,
 }: SortableProjectCardProps) {
   const [showGitLog, setShowGitLog] = useState(false);
 
@@ -786,6 +968,14 @@ function SortableProjectCard({
             🌲 Git
           </button>
           <button
+            onClick={() => onOpenIDE(project.name, project.repo_path)}
+            disabled={isOpeningIDE}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium rounded-lg transition disabled:opacity-50"
+            title="IntelliJ에서 열기 (JetBrains Gateway)"
+          >
+            {isOpeningIDE ? "..." : "🛋️ IDE"}
+          </button>
+          <button
             onClick={onNewTask}
             className="px-3 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg transition"
           >
@@ -830,6 +1020,8 @@ function SortableProjectCard({
                       project={project.name}
                       task={task}
                       onUpdated={onTaskUpdated}
+                      onOpenIDE={onOpenIDE}
+                      isOpeningIDE={isOpeningIDE}
                     />
                   </div>
                   <div className="flex items-center gap-2 mt-1">
@@ -861,10 +1053,48 @@ export default function ProjectsPage() {
   const [isSyncingProjects, setIsSyncingProjects] = useState(false);
   const [syncProjectsResult, setSyncProjectsResult] = useState<{ synced: number; total: number } | null>(null);
   const [modalProject, setModalProject] = useState<Project | null>(null);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [storageLoaded, setStorageLoaded] = useState(false);
 
   // dnd-kit sensors
+  const [isOpeningIDE, setIsOpeningIDE] = useState(false);
+
+  const handleOpenIDE = async (projectName: string, projectPath: string) => {
+    setIsOpeningIDE(true);
+    try {
+      const res = await fetch("/api/projects/ide-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          project: projectName,
+          project_path: projectPath 
+        }),
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        if (data.is_local) {
+          // Mac 로컬: IntelliJ 직접 호출 스킴
+          const url = `idea://open?file=${encodeURIComponent(data.project_path)}`;
+          console.log("Opening local IDE:", url);
+          window.location.assign(url);
+        } else {
+          // 원격: JetBrains Gateway 호출 스킴
+          const targetPath = data.project_path || projectPath;
+          const scheme = `jetbrains-gateway://connect#type=ssh&host=${data.host}&port=${data.port}&user=${data.user}&idePath=${encodeURIComponent(data.ide_path)}&projectPath=${encodeURIComponent(targetPath)}&deploy=false`;
+          window.location.href = scheme;
+        }
+      } else {
+        alert(data.error || "IntelliJ를 실행할 수 없습니다.");
+      }
+    } catch (e) {
+      alert("IDE 실행 중 오류가 발생했습니다.");
+    } finally {
+      setIsOpeningIDE(false);
+    }
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1045,6 +1275,12 @@ export default function ProjectsPage() {
               <>↻ 상태 동기화</>
             )}
           </button>
+          <button
+            onClick={() => setShowNewProjectModal(true)}
+            className="px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg transition"
+          >
+            + New Project
+          </button>
         </div>
       </div>
 
@@ -1069,6 +1305,8 @@ export default function ProjectsPage() {
                   onToggleCollapse={() => toggleCollapse(project.name)}
                   onNewTask={() => setModalProject(project)}
                   onTaskUpdated={fetchProjects}
+                  onOpenIDE={handleOpenIDE}
+                  isOpeningIDE={isOpeningIDE}
                 />
               ))}
             </div>
@@ -1080,6 +1318,13 @@ export default function ProjectsPage() {
         <NewTaskModal
           project={modalProject}
           onClose={() => setModalProject(null)}
+          onCreated={() => fetchProjects()}
+        />
+      )}
+
+      {showNewProjectModal && (
+        <NewProjectModal
+          onClose={() => setShowNewProjectModal(false)}
           onCreated={() => fetchProjects()}
         />
       )}
