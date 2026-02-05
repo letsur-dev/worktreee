@@ -132,10 +132,10 @@ Browser / OpenWebUI
 ┌──────────────────────────────────────────┐
 │            Docker Compose                │
 │                                          │
-│  pm-web (Next.js)  ──►  pm-api (FastAPI) │
-│    :4000                   :8000         │
+│  web (Next.js)  ──►  api (FastAPI)        │
+│    :4000                :8000            │
 │                                          │
-│  pm-api 주요 기능:                        │
+│  api 주요 기능:                           │
 │    - /v1/chat/completions (Agent API)    │
 │    - Tool Calling (20+ PM tools)         │
 │    - Git worktree 생성/삭제              │
