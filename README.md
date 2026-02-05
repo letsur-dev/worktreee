@@ -1,4 +1,4 @@
-# Worktreee (업무나무우)
+# Worktreee 🌳 (업무나무우)
 
 Claude Code를 태스크별 전담 개발자로 만드는 워크트리 기반 프로젝트 관리 에이전트.
 
