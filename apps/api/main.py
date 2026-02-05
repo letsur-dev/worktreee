@@ -630,17 +630,86 @@ IMPORTANT: Jira 티켓 {jira_key}가 감지되었습니다.
 @app.post("/api/create-task", response_model=CreateTaskResponse)
 async def create_task(request: CreateTaskRequest):
     """태스크 생성 및 워크트리 생성 (Jira 키, Notion URL 자동 감지)"""
-    # 기존 코드는 호환성을 위해 유지 (필요시)
-    return await handle_create_task_logic(request)
-
-
-async def handle_create_task_logic(request: CreateTaskRequest):
     from state.manager import StateManager
+
+    logger.info(f"[create-task] 시작: project={request.project}, branch={request.branch}, base={request.base_branch}")
+
     sm = StateManager()
-    
-    # (기존 로직과 동일...)
-    # [코드 중복 방지를 위해 공통 로직으로 분리하는 것이 좋습니다]
-    pass
+
+    # base_branch 처리: PR URL이면 브랜치명 추출
+    base_branch = None
+    if request.base_branch:
+        pr_info = extract_pr_info(request.base_branch)
+        if pr_info:
+            owner, repo, pr_number = pr_info
+            logger.info(f"[create-task] PR URL 감지: {owner}/{repo}#{pr_number}")
+            base_branch = get_pr_head_branch(owner, repo, pr_number)
+            if base_branch:
+                logger.info(f"[create-task] PR head 브랜치: {base_branch}")
+            else:
+                logger.warning(f"[create-task] PR 브랜치 조회 실패, base_branch 그대로 사용")
+                base_branch = request.base_branch
+        else:
+            base_branch = request.base_branch
+            logger.info(f"[create-task] base_branch: {base_branch}")
+
+    # 자동 감지
+    jira_keys = extract_jira_keys(request.description)
+    notion_urls = extract_notion_urls(request.description)
+    jira_key = jira_keys[0] if jira_keys else None
+    logger.info(f"[create-task] 감지된 Jira: {jira_key}, Notion URLs: {notion_urls}")
+
+    # 브랜치 이름에서 task name 추출 (feat/xxx → xxx)
+    branch_parts = request.branch.split("/", 1)
+    task_name = branch_parts[1] if len(branch_parts) > 1 else request.branch
+
+    # 1. 태스크 생성
+    result = sm.add_task(
+        project=request.project,
+        task_name=task_name,
+        context=request.description,
+        branch=request.branch,
+        jira_key=jira_key,
+        notion_urls=notion_urls if notion_urls else None,
+        base_branch=base_branch,
+    )
+    logger.info(f"[create-task] add_task 결과: {result}")
+
+    if "error" in result:
+        logger.error(f"[create-task] 태스크 생성 실패: {result['error']}")
+        return CreateTaskResponse(success=False, error=result["error"])
+
+    # 2. 워크트리 생성 (base_branch 전달)
+    worktree_result = sm.create_worktree(request.project, task_name, base_branch=base_branch)
+    logger.info(f"[create-task] create_worktree 결과: {worktree_result}")
+
+    warning = None
+    if "error" in worktree_result:
+        logger.warning(f"[create-task] 워크트리 생성 실패: {worktree_result['error']}")
+        warning = f"태스크는 생성되었지만 워크트리 생성 실패: {worktree_result['error']}"
+
+    # 3. Claude 세션 시작
+    session_result = sm.start_claude_session(request.project, task_name)
+    logger.info(f"[create-task] start_claude_session 결과: {session_result}")
+    claude_command = session_result.get("command") if session_result.get("success") else None
+    if not session_result.get("success"):
+        session_error = session_result.get("error")
+        if warning:
+            warning += f"; Claude 세션 실패: {session_error}"
+        else:
+            warning = f"Claude 세션 실패: {session_error}"
+
+    response = CreateTaskResponse(
+        success=True,
+        task_name=task_name,
+        worktree_path=worktree_result.get("worktree"),
+        jira_key=jira_key,
+        notion_urls=notion_urls,
+        claude_command=claude_command,
+        warning=warning,
+    )
+    logger.info(f"[create-task] 최종 응답: success={response.success}, warning={response.warning}")
+    return response
 
 @app.get("/api/create-task-stream")
 async def create_task_stream(
