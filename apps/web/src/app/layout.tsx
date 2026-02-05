@@ -3,8 +3,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PM Agent",
-  description: "Project Manager Agent Dashboard",
+  title: "Worktreee",
+  description: "Worktreee - 업무나무우",
 };
 
 export default function RootLayout({

@@ -1,4 +1,4 @@
-# PM Agent
+# Worktreee (업무나무우)
 
 ## 개요
 멀티 프로젝트 관리를 위한 대화형 PM(Project Manager) Agent.
@@ -23,12 +23,12 @@ OpenAI 호환 API를 제공하여 OpenWebUI 등에서 모델처럼 연결 가능
 - **Git Worktree 자동화**: 태스크마다 독립된 워크트리, 브랜치 충돌 없음
 - **Claude 세션 자동 시작**: 레포 분석 + 태스크 컨텍스트 주입 완료 상태로 시작
 - **즉시 재개 가능**: PR 리뷰 받으면 `claude --continue`로 해당 세션 이어서 작업
-- **멀티 머신 지원**: NUC, Mac 등 여러 머신의 프로젝트 통합 관리
+- **멀티 머신 지원**: 여러 머신의 프로젝트 통합 관리 (SSH)
 - **Jira 연동**: 티켓 정보 자동 조회로 컨텍스트 확보
 
 ### 워크플로우 예시
 ```
-1. PM Agent: "PRDEL-107 초대 기능 태스크 만들어줘"
+1. worktreee: "PRDEL-107 초대 기능 태스크 만들어줘"
    → 워크트리 생성, Claude 세션 시작
 
 2. 터미널: `claude --continue`
@@ -36,7 +36,7 @@ OpenAI 호환 API를 제공하여 OpenWebUI 등에서 모델처럼 연결 가능
 
 3. PR 제출 → 리뷰 받음
 
-4. 터미널: `cd lamp-web-worktrees/PRDEL-107-xxx && claude --continue`
+4. 터미널: `cd my-project-worktrees/PRDEL-107-xxx && claude --continue`
    → 리뷰 내용 반영 작업 즉시 재개
 ```
 
@@ -47,7 +47,7 @@ OpenWebUI / Client
        │
        ▼ POST /v1/chat/completions
 ┌─────────────────────────────────────┐
-│         PM Agent Server             │
+│         Worktreee Server             │
 │                                     │
 │  ┌───────────────────────────────┐  │
 │  │   OpenAI 호환 API Layer       │  │
@@ -114,7 +114,7 @@ OpenWebUI / Client
 ## 프로젝트 구조
 
 ```
-pm-worktree/
+worktreee/
 ├── apps/
 │   ├── api/                    # FastAPI 백엔드
 │   │   ├── main.py             # FastAPI 앱 진입점
@@ -164,20 +164,20 @@ pm-worktree/
 ### GET /api/
 서버 상태 확인
 ```json
-{"name": "PM Agent", "version": "0.1.0", "status": "running"}
+{"name": "worktreee", "version": "0.1.0", "status": "running"}
 ```
 
 ### GET /v1/models
 사용 가능한 모델 목록
 ```json
-{"object": "list", "data": [{"id": "pm-agent", ...}]}
+{"object": "list", "data": [{"id": "worktreee", ...}]}
 ```
 
 ### POST /v1/chat/completions
 OpenAI 호환 채팅 API
 ```json
 {
-  "model": "pm-agent",
+  "model": "worktreee",
   "messages": [{"role": "user", "content": "프로젝트 목록 보여줘"}],
   "stream": false
 }
@@ -186,7 +186,7 @@ OpenAI 호환 채팅 API
 ### 웹 페이지 (Next.js)
 
 #### /projects
-PM Agent 프로젝트 목록 페이지
+Worktreee 프로젝트 목록 페이지
 - 등록된 프로젝트명, 표시명(title), 경로, 머신, 태스크 수 표시
 - **드래그 앤 드롭 순서 변경**: 프로젝트 카드 왼쪽 핸들(⋮⋮)로 순서 변경 가능
   - 순서는 localStorage(`pm-project-order`)에 자동 저장
@@ -316,7 +316,7 @@ AI 기반 브랜치 이름 추천
 새 프로젝트 등록
 - `name`: 프로젝트 이름 (필수)
 - `repo_path`: Git 레포 경로 (필수)
-- `machine`: 실행 머신 - local/mac/nuc (기본: local)
+- `machine`: 실행 머신 (기본: local)
 - `title`: 프로젝트 표시명 (선택)
 
 ### list_projects
@@ -536,9 +536,9 @@ Notion 워크스페이스 검색
 | OPENAI_API_KEY | API 키 | - |
 | OPENAI_MODEL | 사용할 모델 | claude-sonnet-4-20250514 |
 | DATA_PATH | 데이터 저장 경로 | /data |
-| LOCAL_BASE_PATH | 로컬 Documents 경로 | /home/amos/Documents |
+| LOCAL_BASE_PATH | 로컬 Documents 경로 | ~/Documents |
 | REMOTE_BASE_PATH | 원격 Documents 경로 | ~/Documents |
-| LOCAL_MACHINE | 서버가 돌아가는 머신 별칭 | nuc |
+| LOCAL_MACHINE | 서버가 돌아가는 머신 별칭 | local |
 | REMOTE_HOSTS | 원격 호스트 (별칭:주소) | (없음, 선택사항) |
 | JIRA_URL | Jira 인스턴스 URL | (없음, 선택사항) |
 | JIRA_EMAIL | Jira 계정 이메일 | (없음, 선택사항) |
@@ -558,10 +558,10 @@ docker compose up -d
 - `pm-web`: Next.js 프론트엔드 (외부 포트 4000)
 
 Docker 볼륨 마운트 (api):
-- `/home/amos/Documents` → 로컬 프로젝트 접근
-- `/home/amos/.ssh` → SSH 키 (원격 접근)
-- `/home/amos/.claude` → Claude CLI 세션 공유
-- `/home/amos/.config/gh` → GitHub CLI 인증 공유
+- `~/Documents` → 로컬 프로젝트 접근
+- `~/.ssh` → SSH 키 (원격 접근)
+- `~/.claude` → Claude CLI 세션 공유
+- `~/.config/gh` → GitHub CLI 인증 공유
 
 > **Note**: `~/.claude` 마운트로 Claude CLI 인증이 자동 공유됩니다.
 > `~/.config/gh` 마운트로 GitHub CLI (`gh`) 인증이 자동 공유되어 PR 상태 조회가 가능합니다.
@@ -587,8 +587,7 @@ cd apps/api && uv run uvicorn main:app --reload --port 8000
 ## 연결 정보
 
 - **로컬**: http://localhost:4000
-- **Tailscale**: http://100.119.182.54:4000
-- **OpenWebUI Endpoint**: http://100.119.182.54:4000/v1
+- **OpenWebUI Endpoint**: http://localhost:4000/v1
 
 ## 상태 저장 형식
 
@@ -596,14 +595,14 @@ cd apps/api && uv run uvicorn main:app --reload --port 8000
 # data/projects.yaml
 projects:
   my-project:
-    repo_path: /home/user/projects/my-project
-    machine: nuc
+    repo_path: ~/projects/my-project
+    machine: local
     title: My Project
     created: '2025-12-31T00:00:00'
     tasks:
       PRDEL-107-invite:
         branch: feature/PRDEL-107/invite-feature
-        worktree: /home/user/projects/my-project-worktrees/PRDEL-107-invite-a1b2c3d
+        worktree: ~/projects/my-project-worktrees/PRDEL-107-invite-a1b2c3d
         status: in_progress  # PR 기반 자동: in_progress/in_review/completed
         archived_at: null     # 아카이브 시 ISO 날짜 저장
         context: |
@@ -697,7 +696,7 @@ projects:
 ┌─────────────────────────────────────────────────┐
 │  New Task                                  [X]  │
 ├─────────────────────────────────────────────────┤
-│  프로젝트: letsur-platform-web                  │
+│  프로젝트: my-project                            │
 │                                                 │
 │  작업 설명:                                     │
 │  ┌─────────────────────────────────────────┐   │
@@ -733,34 +732,3 @@ projects:
 - [ ] 웹훅/알림
 - [ ] 프로젝트 상세 페이지
 
----
-
-## 미해결 이슈
-
-### Vercel 배포 (검토 필요)
-
-**현재 상태:**
-- Vercel 프로젝트 존재: `pm-agent-ten.vercel.app`
-- GitHub: `shallwefootball/pm-agent` 연결됨
-- 모노레포 구조 변경 후 빌드 실패 중
-
-**문제점:**
-PM Agent는 로컬 전용 도구로, Vercel에서 실행 불가:
-- 로컬 파일시스템 접근 필요
-- SSH (원격 머신 접근) 필요
-- Claude CLI 필요
-- Git worktree 생성 필요
-
-**원래 의도 (추정):**
-- Mac에서 NUC의 PM Agent API를 호출하려고 했을 수 있음
-- Tailscale 없이 외부 접근용?
-- Claude Code에서 MCP처럼 tool calling?
-
-**현재 접근 방법:**
-- Tailscale: `http://100.119.182.54:4000`
-- OpenWebUI Endpoint: `http://100.119.182.54:4000/v1`
-
-**TODO:**
-- [ ] Vercel 배포 목적 재검토
-- [ ] 필요 없으면 Vercel 프로젝트 삭제
-- [ ] 외부 접근이 필요하면 다른 방법 검토 (Cloudflare Tunnel 등)

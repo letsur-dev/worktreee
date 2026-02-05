@@ -26,12 +26,12 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      letsur-components:
-        specifier: workspace:*
-        version: link:../../packages/untitledui
       next:
         specifier: ^15.1.0
         version: 15.5.9(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      pm-components:
+        specifier: workspace:*
+        version: link:../../packages/untitledui
       react:
         specifier: ^19.0.0
         version: 19.2.3

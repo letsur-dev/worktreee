@@ -19,7 +19,7 @@ class Message(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "pm-agent"
+    model: str = "worktreee"
     messages: list[Message]
     stream: bool = False
     temperature: float = 0.7
@@ -64,7 +64,7 @@ async def list_models() -> ModelsResponse:
     return ModelsResponse(
         data=[
             ModelInfo(
-                id="pm-agent",
+                id="worktreee",
                 created=int(time.time()),
                 owned_by="local",
             )
@@ -88,7 +88,7 @@ async def chat_completions(request: ChatCompletionRequest):
     return ChatCompletionResponse(
         id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
         created=int(time.time()),
-        model="pm-agent",
+        model="worktreee",
         choices=[
             ChatCompletionChoice(
                 index=0,
@@ -109,13 +109,13 @@ async def stream_response(messages: list[dict]) -> AsyncGenerator[str, None]:
     response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
 
-    # PM Agent 실행
+    # worktreee Agent 실행
     for chunk in pm_agent.run_stream(messages):
         data = {
             "id": response_id,
             "object": "chat.completion.chunk",
             "created": created,
-            "model": "pm-agent",
+            "model": "worktreee",
             "choices": [
                 {
                     "index": 0,
@@ -131,7 +131,7 @@ async def stream_response(messages: list[dict]) -> AsyncGenerator[str, None]:
         "id": response_id,
         "object": "chat.completion.chunk",
         "created": created,
-        "model": "pm-agent",
+        "model": "worktreee",
         "choices": [
             {
                 "index": 0,
