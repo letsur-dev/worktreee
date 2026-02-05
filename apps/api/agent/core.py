@@ -83,7 +83,7 @@ IMPORTANT - When showing Jira issue results:
 
 CRITICAL - BRANCH NAMING (MUST FOLLOW):
 Before calling create_task, you MUST:
-1. Confirm which project (if ambiguous, ASK: "letsur-platform-web인가요, backend인가요?")
+1. Confirm which project (if ambiguous, ASK which project)
 2. Determine branch type and create proper name with prefix
 
 REQUIRED branch format: {type}/{description}

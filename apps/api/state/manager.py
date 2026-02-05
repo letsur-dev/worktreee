@@ -2701,7 +2701,7 @@ git fetch --prune 2>/dev/null
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "pm-agent", "version": "1.0.0"}
+                "clientInfo": {"name": "worktreee", "version": "1.0.0"}
             }
         }
 
@@ -2846,21 +2846,23 @@ git fetch --prune 2>/dev/null
 
         repo_path = proj["repo_path"]
 
-        # GitHub repo 추론 (경로에서)
-        # 예: /Users/amos/Documents/letsur/lamp-web -> letsur-dev/lamp-web
-        # 예: /home/amos/Documents/letsur/letsur-gateway -> letsur-dev/letsur-gateway
-        def infer_repo_from_path(path: str) -> str | None:
-            # letsur 프로젝트 패턴
-            match = re.search(r'/letsur/([^/]+)(?:-worktrees)?$', path)
-            if match:
-                repo_name = match.group(1)
-                # lamp-web -> letsur-platform-web 매핑
-                if repo_name == "lamp-web":
-                    return "letsur-dev/letsur-platform-web"
-                return f"letsur-dev/{repo_name}"
-            return None
+        # GitHub repo 추론 (git remote에서)
+        repo = None
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                remote_url = result.stdout.strip()
+                if "github.com" in remote_url:
+                    if remote_url.startswith("git@"):
+                        repo = remote_url.split(":")[-1].replace(".git", "")
+                    else:
+                        repo = "/".join(remote_url.split("/")[-2:]).replace(".git", "")
+        except Exception:
+            pass
 
-        repo = infer_repo_from_path(repo_path)
         if not repo:
             return {"error": f"GitHub repo를 추론할 수 없습니다: {repo_path}"}
 

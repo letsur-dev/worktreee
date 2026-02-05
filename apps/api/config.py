@@ -12,15 +12,15 @@ class Settings(BaseSettings):
     data_path: str = "/data"
 
     # Documents 기준 경로
-    local_base_path: str = "/home/amos/Documents"  # 호스트와 동일한 경로로 마운트
+    local_base_path: str = os.path.expanduser("~/Documents")  # 호스트와 동일한 경로로 마운트
     remote_base_path: str = "~/Documents"    # SSH 원격 경로
 
     # 로컬 머신 별칭 (서버가 돌아가는 머신)
     # "local" 외에 이 값과 일치하면 로컬로 처리
-    local_machine: str = "nuc"
+    local_machine: str = "local"
 
     # 원격 머신 (SSH) - 별칭:주소 형태, 쉼표로 구분
-    # 예: "mac:amos@100.73.228.37,server:user@192.168.1.100"
+    # 예: "mac:user@192.168.1.10,server:user@192.168.1.100"
     remote_hosts: str = ""  # 기본값 없음, .env에서 설정
 
     # Jira API

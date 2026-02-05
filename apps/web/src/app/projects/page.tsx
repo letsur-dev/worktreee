@@ -341,6 +341,11 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
+  const [jiraUrl, setJiraUrl] = useState("");
+
+  useEffect(() => {
+    fetch("/api/config").then(r => r.json()).then(d => setJiraUrl(d.jira_url || "")).catch(() => {});
+  }, []);
 
   const handleSuggest = async () => {
     if (!description.trim()) return;
@@ -543,7 +548,7 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
               {detectedJiraKeys.map((key) => (
                 <a
                   key={key}
-                  href={`https://letsur.atlassian.net/browse/${key}`}
+                  href={`${jiraUrl}/browse/${key}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/30 transition"
@@ -707,7 +712,7 @@ function NewProjectModal({ onClose, onCreated }: NewProjectModalProps) {
               type="text"
               value={repoPath}
               onChange={(e) => setRepoPath(e.target.value)}
-              placeholder="예: /home/amos/Documents/my-project"
+              placeholder="예: ~/Documents/my-project"
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-500 text-sm"
               autoFocus
             />

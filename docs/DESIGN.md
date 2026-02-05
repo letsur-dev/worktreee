@@ -1,4 +1,4 @@
-# PM Agent 설계 노트
+# Worktreee 설계 노트
 
 ## 프로젝트 네이밍
 
@@ -13,14 +13,14 @@
 ### 예시
 ```yaml
 # Good
-letsur-gateway:
-  machine: nuc
-  repo_path: /home/amos/Documents/letsur/letsur-gateway
+my-gateway:
+  machine: local
+  repo_path: ~/Documents/my-org/my-gateway
 
 # Bad
-letsur-gateway-nuc:
-  machine: nuc
-  repo_path: /home/amos/Documents/letsur/letsur-gateway
+my-gateway-server:
+  machine: server
+  repo_path: ~/Documents/my-org/my-gateway
 ```
 
 ### TODO

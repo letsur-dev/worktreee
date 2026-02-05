@@ -1,15 +1,15 @@
 # IntelliJ Integration Guide
 
-이 프로젝트는 웹 UI에서 원격(NUC) 또는 로컬(Mac) IntelliJ를 즉시 실행할 수 있는 기능을 제공합니다.
+이 프로젝트는 웹 UI에서 원격 서버 또는 로컬 IntelliJ를 즉시 실행할 수 있는 기능을 제공합니다.
 
 ## 1. 작동 원리
 
-### 원격 서버 (NUC 등)
+### 원격 서버
 - **방식**: `jetbrains-gateway://` URL Scheme을 사용하여 JetBrains Gateway를 호출합니다.
 - **연결**: Gateway가 원격 서버에 SSH로 접속하여 지정된 `idePath`의 IntelliJ 백엔드를 실행하고, 로컬의 JetBrains Client와 연결합니다.
 - **자동 탐색**: 백엔드 API(`/api/projects/ide-path`)가 서버의 `~/.cache/JetBrains/RemoteDev/dist` 경로에서 최신 IDE 바이너리를 찾아 반환합니다.
 
-### 로컬 머신 (Mac)
+### 로컬 머신
 - **방식**: `idea://` URL Scheme을 사용하여 로컬 IntelliJ를 직접 호출합니다.
 - **연결**: 브라우저가 로컬 시스템의 IntelliJ를 즉시 실행하며 프로젝트 경로를 인자로 전달합니다.
 - **URL 포맷**: `idea://open?file={project_path}`
@@ -20,13 +20,13 @@
 
 ### 데이터 설정 (`data/projects.yaml`)
 각 프로젝트의 `machine` 필드에 따라 실행 방식이 결정됩니다.
-- `machine: nuc`: JetBrains Gateway (SSH) 방식 사용
-- `machine: mac`: 로컬 `idea://` 방식 사용
+- 원격 머신: JetBrains Gateway (SSH) 방식 사용
+- `machine: local` 또는 `LOCAL_MACHINE` 값과 일치: 로컬 `idea://` 방식 사용
 
 ### 백엔드 환경 변수
 원격 접속을 위해 SSH 호스트 정보가 필요합니다.
 ```env
-REMOTE_HOSTS=nuc:amos@100.119.182.54,mac:amos@localhost
+REMOTE_HOSTS=server:user@your-server-ip,dev:user@192.168.1.50
 ```
 
 ## 3. 트러블슈팅

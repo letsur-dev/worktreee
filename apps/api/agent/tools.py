@@ -313,11 +313,11 @@ TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Documents 기준 상대경로 (예: 'letsur'). 생략하면 Documents 루트.",
+                        "description": "Documents 기준 상대경로 (예: 'my-org'). 생략하면 Documents 루트.",
                     },
                     "host": {
                         "type": "string",
-                        "description": "'mac'이면 원격 Mac, 생략하면 로컬(NUC).",
+                        "description": "원격 호스트 별칭 (예: 'mac'). 생략하면 로컬.",
                     },
                 },
             },
@@ -333,11 +333,11 @@ TOOLS = [
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Documents 기준 상대경로 (예: 'letsur'). 생략하면 전체 스캔.",
+                        "description": "Documents 기준 상대경로 (예: 'my-org'). 생략하면 전체 스캔.",
                     },
                     "host": {
                         "type": "string",
-                        "description": "'mac'이면 원격 Mac, 생략하면 로컬(NUC).",
+                        "description": "원격 호스트 별칭 (예: 'mac'). 생략하면 로컬.",
                     },
                 },
             },

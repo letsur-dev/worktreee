@@ -1,20 +1,20 @@
 services:
   api:
     build: ./apps/api
-    container_name: pm-api
+    container_name: worktreee-api
     user: "1000:1000"
     ports:
       - "8000:8000"
     volumes:
       - ./apps/api:/app
       - ./data:/data
-      - /home/amos/Documents:/home/amos/Documents
-      - /home/amos/.ssh:/home/amos/.ssh:ro
-      - /home/amos/.claude:/home/amos/.claude
-      - /home/amos/.config/gh:/home/amos/.config/gh:ro
-      - /home/amos/.mcp-auth:/home/amos/.mcp-auth:ro
+      - ${HOME}/Documents:${HOME}/Documents
+      - ${HOME}/.ssh:${HOME}/.ssh:ro
+      - ${HOME}/.claude:${HOME}/.claude
+      - ${HOME}/.config/gh:${HOME}/.config/gh:ro
+      - ${HOME}/.mcp-auth:${HOME}/.mcp-auth:ro
     environment:
-      - HOME=/home/amos
+      - HOME=${HOME}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: pm-web
+    container_name: worktreee-web
     ports:
       - "4000:3000"
     environment:

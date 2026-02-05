@@ -32,7 +32,7 @@ def extract_notion_urls(text: str) -> list[str]:
 
 def extract_pr_info(url: str) -> tuple[str, str, int] | None:
     """GitHub PR URL에서 owner, repo, pr_number 추출
-    예: https://github.com/letsur-dev/letsur-platform-web/pull/33
+    예: https://github.com/owner/repo/pull/33
     """
     pattern = r'https?://github\.com/([^/]+)/([^/]+)/pull/(\d+)'
     match = re.match(pattern, url)
@@ -98,8 +98,8 @@ class CreateTaskResponse(BaseModel):
     warning: str | None = None
 
 app = FastAPI(
-    title="PM Agent",
-    description="Project Manager Agent - OpenAI 호환 API",
+    title="Worktreee",
+    description="Worktreee - OpenAI 호환 API",
     version="0.1.0",
 )
 
@@ -124,69 +124,51 @@ async def get_ide_path(request: IDEPathRequest):
     project = data["projects"][request.project]
     machine = project.get("machine", "local")
     
-    # 1. NUC 특수 처리
-    if machine == "nuc":
+    local_machine = os.getenv("LOCAL_MACHINE", "local")
+    project_path = request.project_path or project["repo_path"]
+
+    # 로컬 머신이면 idea:// scheme으로 직접 열기
+    if machine == "local" or machine == local_machine:
         return {
             "success": True,
-            "ide_path": "/home/amos/.cache/JetBrains/RemoteDev/dist/2e204d9b1a443_idea-253.29346.50",
-            "user": "amos",
-            "host": "100.119.182.54",
-            "port": 22,
-            "project_path": request.project_path or project["repo_path"]
-        }
-    
-    # 2. Mac 특수 처리
-    if machine == "mac":
-        res = {
-            "success": True,
             "is_local": True,
-            "project_path": request.project_path or project["repo_path"]
+            "project_path": project_path
         }
-        logger.info(f"[ide-path] Mac local response: {res}")
-        return res
 
-    # 3. 기타 원격 서버 탐색 로직
+    # 원격 서버: JetBrains Gateway로 IDE 경로 탐색
     remote_hosts = os.getenv("REMOTE_HOSTS", "")
     host_map = {}
     for entry in remote_hosts.split(","):
         if ":" in entry:
             alias, addr = entry.split(":", 1)
             host_map[alias.strip()] = addr.strip()
-    
+
     script = """
     for d in ~/.cache/JetBrains/RemoteDev/dist ~/.cache/JetBrains/RemoteDev-IU/dist; do
         ls -d $d/*idea* $d/*IU* 2>/dev/null
     done | sort -r | head -1
     """
-    
+
     try:
-        if machine == "local":
-            result = subprocess.run(
-                ["bash", "-c", script],
-                capture_output=True, text=True, timeout=10
-            )
-            host = "localhost"
-            user = os.getenv("USER", "amos")
+        resolved_host = host_map.get(machine, machine)
+        cmd = ["ssh", "-o", "ConnectTimeout=5", resolved_host, script]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if "@" in resolved_host:
+            user, host = resolved_host.split("@", 1)
         else:
-            resolved_host = host_map.get(machine, machine)
-            cmd = ["ssh", "-o", "ConnectTimeout=5", resolved_host, script]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            if "@" in resolved_host:
-                user, host = resolved_host.split("@", 1)
-            else:
-                user, host = "amos", resolved_host
-                
+            user, host = os.getenv("USER", "user"), resolved_host
+
         ide_path = result.stdout.strip()
         if not ide_path:
             return {"error": "원격 서버에서 IntelliJ 설치 경로를 찾을 수 없습니다."}
-            
+
         return {
             "success": True,
             "ide_path": ide_path,
             "user": user,
             "host": host,
             "port": 22,
-            "project_path": request.project_path or project["repo_path"]
+            "project_path": project_path
         }
     except Exception as e:
         return {"error": str(e)}
@@ -307,7 +289,7 @@ async def get_graph_file(filename: str):
 
         if "error" in result or "_error" in result:
             return HTMLResponse(
-                content=f"<html><body><h1>Graph 생성 실패</h1><p>{result.get('error') or result.get('_error')}</p><p><a href='https://letsur.atlassian.net/browse/{issue_key}'>Jira에서 보기</a></p></body></html>",
+                content=f"<html><body><h1>Graph 생성 실패</h1><p>{result.get('error') or result.get('_error')}</p><p><a href='{settings.jira_url}/browse/{issue_key}'>Jira에서 보기</a></p></body></html>",
                 status_code=404
             )
 
@@ -1051,16 +1033,6 @@ async def get_pr_info(request: PRInfoRequest):
     import subprocess
     import re
 
-    def infer_github_repo(path: str) -> str | None:
-        """경로에서 GitHub repo 추론 (letsur 프로젝트용)"""
-        # /Users/amos/Documents/letsur/lamp-web -> letsur-dev/lamp-web
-        # /home/amos/Documents/letsur/letsur-gateway -> letsur-dev/letsur-gateway
-        match = re.search(r'/letsur/([^/]+)$', path)
-        if match:
-            repo_name = match.group(1)
-            return f"letsur-dev/{repo_name}"
-        return None
-
     def try_gh_pr_list(repo: str, branch: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [
@@ -1089,10 +1061,6 @@ async def get_pr_info(request: PRInfoRequest):
                     repo = remote_url.split(":")[-1].replace(".git", "")
                 else:
                     repo = "/".join(remote_url.split("/")[-2:]).replace(".git", "")
-
-        # 2. 로컬 경로가 없으면 패턴에서 추론
-        if not repo:
-            repo = infer_github_repo(request.repo_path)
 
         if not repo:
             return PRInfo()  # repo를 알 수 없음
@@ -1131,12 +1099,6 @@ async def sync_task_statuses():
     import re
     from state.manager import StateManager
 
-    def infer_github_repo(path: str) -> str | None:
-        match = re.search(r'/letsur/([^/]+)$', path)
-        if match:
-            return f"letsur-dev/{match.group(1)}"
-        return None
-
     def get_repo_from_path(repo_path: str) -> str | None:
         # 로컬 경로에서 git remote 추출
         try:
@@ -1153,7 +1115,7 @@ async def sync_task_statuses():
                         return "/".join(remote_url.split("/")[-2:]).replace(".git", "")
         except:
             pass
-        return infer_github_repo(repo_path)
+        return None
 
     def get_pr_info(repo: str, branch: str) -> dict | None:
         """PR 정보 조회 (저장용)"""
@@ -1242,10 +1204,16 @@ async def sync_task_statuses():
     }
 
 
+@app.get("/api/config")
+async def get_config():
+    """프론트엔드에 필요한 설정 반환"""
+    return {"jira_url": settings.jira_url}
+
+
 @app.get("/")
 async def root():
     """API 상태"""
-    return {"name": "PM Agent API", "version": "0.1.0", "status": "running"}
+    return {"name": "Worktreee API", "version": "0.1.0", "status": "running"}
 
 
 @app.get("/health")
