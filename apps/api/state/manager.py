@@ -980,32 +980,37 @@ echo "Rebase 완료: origin/{base_branch}"
             if notion_parts:
                 notion_content = "\n" + "\n\n".join(notion_parts) + "\n"
 
-        # TASK.md 컨텍스트 파일 생성
-        task_md = f"""# Task: {task_name}
+        # .handoff/latest.md 컨텍스트 파일 생성
+        handoff_md = f"""# Handoff: {task_name}
 
-## 정보
+## 목표
+{context}
+
+## 현재 상태
 - 프로젝트: {project}
 - 브랜치: {branch}
 - 워크트리: {worktree_path}
+- 상태: 새 태스크 (작업 시작 전)
 
-## 컨텍스트
-{context}
+## 핵심 파일
+(레포 분석 후 Claude가 채움)
 {jira_content}{notion_content}
-## 요청사항
-1. 레포지토리 구조를 파악하고 태스크에 필요한 파일들을 찾아주세요
-2. 구현 계획을 세워주세요
+## 다음 할 것
+1. 레포지토리 구조 파악
+2. 태스크에 필요한 파일 찾기
+3. 구현 계획 수립
 """
 
         machine = proj.get("machine", "local")
         is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
 
         if is_local:
-            result = self._start_claude_session_local(worktree_path, task_md)
+            result = self._start_claude_session_local(worktree_path, handoff_md)
         else:
             resolved_host = self._resolve_host(machine)
             if isinstance(resolved_host, dict):
                 return resolved_host
-            result = self._start_claude_session_remote(worktree_path, task_md, resolved_host)
+            result = self._start_claude_session_remote(worktree_path, handoff_md, resolved_host)
 
         # 세션 정보 저장
         if result.get("success"):
@@ -1017,16 +1022,17 @@ echo "Rebase 완료: origin/{base_branch}"
 
         return result
 
-    def _start_claude_session_local(self, worktree_path: str, task_md: str) -> dict:
-        """로컬 워크트리에 TASK.md 컨텍스트 파일 작성"""
+    def _start_claude_session_local(self, worktree_path: str, handoff_md: str) -> dict:
+        """로컬 워크트리에 .handoff/latest.md 컨텍스트 파일 작성"""
         if not Path(worktree_path).exists():
             return {"error": f"워크트리 경로가 존재하지 않습니다: {worktree_path}"}
 
         try:
-            task_md_path = Path(worktree_path) / "TASK.md"
-            task_md_path.write_text(task_md, encoding="utf-8")
+            handoff_dir = Path(worktree_path) / ".handoff"
+            handoff_dir.mkdir(exist_ok=True)
+            (handoff_dir / "latest.md").write_text(handoff_md, encoding="utf-8")
         except Exception as e:
-            return {"error": f"TASK.md 작성 실패: {str(e)}"}
+            return {"error": f".handoff/latest.md 작성 실패: {str(e)}"}
 
         command = f"cd {worktree_path} && claude"
 
@@ -1034,19 +1040,19 @@ echo "Rebase 완료: origin/{base_branch}"
             "success": True,
             "worktree": worktree_path,
             "command": command,
-            "message": f"TASK.md가 생성되었습니다. 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
+            "message": f"handoff가 생성되었습니다. 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
         }
 
-    def _start_claude_session_remote(self, worktree_path: str, task_md: str, host: str) -> dict:
-        """원격 워크트리에 TASK.md 컨텍스트 파일 작성"""
+    def _start_claude_session_remote(self, worktree_path: str, handoff_md: str, host: str) -> dict:
+        """원격 워크트리에 .handoff/latest.md 컨텍스트 파일 작성"""
         remote_path = worktree_path.replace("~", "$HOME")
-        escaped_content = task_md.replace("'", "'\\''")
 
         script = f'''
 cd {remote_path} || exit 1
-cat > TASK.md << 'TASK_EOF'
-{task_md}
-TASK_EOF
+mkdir -p .handoff
+cat > .handoff/latest.md << 'HANDOFF_EOF'
+{handoff_md}
+HANDOFF_EOF
 '''
         cmd = [
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
@@ -1056,7 +1062,7 @@ TASK_EOF
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
-                return {"error": f"TASK.md 작성 실패: {result.stderr or result.stdout}"}
+                return {"error": f".handoff/latest.md 작성 실패: {result.stderr or result.stdout}"}
 
             command = f"cd {worktree_path} && claude"
 
@@ -1065,7 +1071,7 @@ TASK_EOF
                 "worktree": worktree_path,
                 "host": host,
                 "command": command,
-                "message": f"TASK.md가 생성되었습니다. 원격에서 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
+                "message": f"handoff가 생성되었습니다. 원격에서 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
             }
         except subprocess.TimeoutExpired:
             return {"error": "SSH/Claude 세션 타임아웃"}

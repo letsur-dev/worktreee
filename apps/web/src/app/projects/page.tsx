@@ -477,7 +477,7 @@ function NewTaskModal({ project, onClose, onCreated }: NewTaskModalProps) {
                   Claude 세션 (백그라운드에서 시작 중...)
                 </div>
                 <div className="text-xs text-gray-400 mb-2">
-                  TASK.md에 컨텍스트가 포함되어 있습니다
+                  새 세션에서 자동으로 컨텍스트가 주입됩니다
                 </div>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 p-2 bg-gray-800 rounded text-sm text-gray-100 font-mono overflow-x-auto">
