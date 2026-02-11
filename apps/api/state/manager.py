@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import time
@@ -11,6 +12,8 @@ import requests
 import yaml
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StateManager:
@@ -620,8 +623,10 @@ git branch -D "{branch}" 2>/dev/null || true
 
     def create_worktree(self, project: str, task_name: str, base_branch: str | None = None) -> dict:
         """태스크용 Git worktree를 생성합니다."""
+        logger.info(f"[create_worktree] project={project}, task={task_name}, base_branch={base_branch}")
         data = self._load()
         if project not in data["projects"]:
+            logger.error(f"[create_worktree] 프로젝트 없음: {project}")
             return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
 
         proj = data["projects"][project]
@@ -679,8 +684,11 @@ git branch -D "{branch}" 2>/dev/null || true
             base: 새 브랜치 생성 시 사용할 base 브랜치 (없으면 origin/develop 또는 origin/main)
         """
         try:
+            logger.info(f"[worktree-local] repo={repo_path}, path={worktree_path}, branch={branch}, base={base}")
+
             # 이미 워크트리가 있는지 확인
             if os.path.exists(worktree_path):
+                logger.warning(f"[worktree-local] 디렉토리 이미 존재: {worktree_path}")
                 return {"error": f"디렉토리가 이미 존재합니다: {worktree_path}"}
 
             # worktrees 디렉토리 생성
@@ -688,10 +696,12 @@ git branch -D "{branch}" 2>/dev/null || true
             os.makedirs(worktrees_dir, exist_ok=True)
 
             # 최신 원격 브랜치 정보 가져오기
-            subprocess.run(
+            fetch_result = subprocess.run(
                 ["git", "-C", repo_path, "fetch", "origin"],
                 capture_output=True, text=True, timeout=60
             )
+            if fetch_result.returncode != 0:
+                logger.warning(f"[worktree-local] git fetch 실패: {fetch_result.stderr}")
 
             # 브랜치 존재 여부 확인
             check_branch = subprocess.run(
@@ -699,6 +709,7 @@ git branch -D "{branch}" 2>/dev/null || true
                 capture_output=True, text=True
             )
             branch_exists = check_branch.returncode == 0
+            logger.info(f"[worktree-local] 로컬 브랜치 '{branch}' 존재: {branch_exists}")
 
             # 원격 브랜치 확인
             if not branch_exists:
@@ -708,6 +719,7 @@ git branch -D "{branch}" 2>/dev/null || true
                 )
                 if check_remote.returncode == 0:
                     branch_exists = True
+                    logger.info(f"[worktree-local] 원격 브랜치 'origin/{branch}' 존재")
 
             # 워크트리 생성
             if branch_exists:
@@ -730,14 +742,19 @@ git branch -D "{branch}" 2>/dev/null || true
                         base_branch = "origin/main"
                 cmd = ["git", "-C", repo_path, "worktree", "add", "-b", branch, worktree_path, base_branch]
 
+            logger.info(f"[worktree-local] 실행: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
+                logger.error(f"[worktree-local] git worktree add 실패: {result.stderr}")
                 return {"error": f"워크트리 생성 실패: {result.stderr}"}
 
+            logger.info(f"[worktree-local] 성공: {worktree_path}")
             return {"success": True, "worktree": worktree_path}
         except subprocess.TimeoutExpired:
+            logger.error(f"[worktree-local] 타임아웃: repo={repo_path}, branch={branch}")
             return {"error": "워크트리 생성 타임아웃"}
         except Exception as e:
+            logger.error(f"[worktree-local] 예외 발생: repo={repo_path}, branch={branch}, error={e}")
             return {"error": str(e)}
 
     def _create_worktree_remote(self, repo_path: str, worktree_path: str, branch: str, host: str, base: str | None = None) -> dict:
@@ -746,6 +763,7 @@ git branch -D "{branch}" 2>/dev/null || true
         Args:
             base: 새 브랜치 생성 시 사용할 base 브랜치 (없으면 origin/develop 또는 origin/main)
         """
+        logger.info(f"[worktree-remote] host={host}, repo={repo_path}, path={worktree_path}, branch={branch}, base={base}")
         # 원격 경로에서 ~ 처리
         repo_path = repo_path.replace("~", "$HOME")
         worktree_path = worktree_path.replace("~", "$HOME")
@@ -789,15 +807,20 @@ fi
         ]
 
         try:
+            logger.info(f"[worktree-remote] SSH 실행: host={host}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode != 0:
                 error_msg = result.stderr or result.stdout
+                logger.error(f"[worktree-remote] 실패: host={host}, error={error_msg}")
                 return {"error": f"워크트리 생성 실패: {error_msg}"}
 
+            logger.info(f"[worktree-remote] 성공: {worktree_path} on {host}")
             return {"success": True, "worktree": worktree_path, "host": host}
         except subprocess.TimeoutExpired:
+            logger.error(f"[worktree-remote] SSH 타임아웃: host={host}, repo={repo_path}")
             return {"error": "SSH 연결 타임아웃"}
         except Exception as e:
+            logger.error(f"[worktree-remote] 예외 발생: host={host}, error={e}")
             return {"error": str(e)}
 
     def sync_worktree(self, project: str, task_name: str, base_branch: str = "develop") -> dict:

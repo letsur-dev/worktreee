@@ -742,21 +742,25 @@ async def create_task_stream(
 
         # 3. 워크트리 생성
         yield f"data: {json_module.dumps({'type': 'info', 'message': 'Git 워크트리 생성 중 (시간이 소요될 수 있습니다)...'}, ensure_ascii=False)}\n\n"
+        logger.info(f"[create-task] 워크트리 생성 시작: project={project}, task={task_name}, base={actual_base}")
         worktree_result = sm.create_worktree(project, task_name, base_branch=actual_base)
-        
+
         if "error" in worktree_result:
             error_msg = worktree_result['error']
+            logger.error(f"[create-task] 워크트리 생성 실패: project={project}, task={task_name}, error={error_msg}")
             yield f"data: {json_module.dumps({'type': 'warning', 'message': f'태스크는 생성되었으나 워크트리 생성 실패: {error_msg}'}, ensure_ascii=False)}\n\n"
         else:
+            logger.info(f"[create-task] 워크트리 생성 완료: {worktree_result.get('worktree')}")
             yield f"data: {json_module.dumps({'type': 'info', 'message': '워크트리 생성 완료!'}, ensure_ascii=False)}\n\n"
 
         # 4. Claude 세션 시작
         yield f"data: {json_module.dumps({'type': 'info', 'message': 'Claude 사전 분석 세션 시작 중...'}, ensure_ascii=False)}\n\n"
         session_result = sm.start_claude_session(project, task_name)
-        
+
         final_warning = None
         if not session_result.get("success"):
             final_warning = f"Claude 세션 시작 실패: {session_result.get('error')}"
+            logger.error(f"[create-task] Claude 세션 실패: project={project}, task={task_name}, error={session_result.get('error')}")
             yield f"data: {json_module.dumps({'type': 'warning', 'message': final_warning}, ensure_ascii=False)}\n\n"
 
         # 5. 최종 결과 전송
