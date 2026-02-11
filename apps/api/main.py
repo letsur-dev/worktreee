@@ -111,67 +111,66 @@ class IDEPathRequest(BaseModel):
 
 @app.post("/api/projects/ide-path")
 async def get_ide_path(request: IDEPathRequest):
-    """원격 서버의 IntelliJ IDE 경로 조회"""
-    import subprocess
+    """IDE 열기에 필요한 연결 정보 반환.
+    - 브라우저와 같은 머신(mac) → is_local: true (idea:// 스킴)
+    - 그 외(nuc 등) → SSH 연결 정보 (jetbrains-gateway:// 스킴, 프론트에서 조합)
+    """
     from state.manager import StateManager
-    
+
     sm = StateManager()
     data = sm._load()
-    
+
     if request.project not in data.get("projects", {}):
         return {"error": f"프로젝트 '{request.project}' 없음"}
-        
+
     project = data["projects"][request.project]
     machine = project.get("machine", "local")
-    
-    local_machine = os.getenv("LOCAL_MACHINE", "local")
+    client_machine = os.getenv("CLIENT_MACHINE", "mac")
     project_path = request.project_path or project["repo_path"]
 
-    # 로컬 머신이면 idea:// scheme으로 직접 열기
-    if machine == "local" or machine == local_machine:
+    # 브라우저와 같은 머신이면 idea:// 스킴으로 직접 열기
+    if machine == "local" or machine == client_machine:
         return {
             "success": True,
             "is_local": True,
             "project_path": project_path
         }
 
-    # 원격 서버: JetBrains Gateway로 IDE 경로 탐색
+    # 원격: SSH 연결 정보만 반환 (IDE 경로 탐색 불필요, Gateway가 알아서 처리)
     remote_hosts = os.getenv("REMOTE_HOSTS", "")
+    local_machine = os.getenv("LOCAL_MACHINE", "local")
     host_map = {}
     for entry in remote_hosts.split(","):
         if ":" in entry:
             alias, addr = entry.split(":", 1)
             host_map[alias.strip()] = addr.strip()
 
-    script = """
-    for d in ~/.cache/JetBrains/RemoteDev/dist ~/.cache/JetBrains/RemoteDev-IU/dist; do
-        ls -d $d/*idea* $d/*IU* 2>/dev/null
-    done | sort -r | head -1
-    """
-
-    try:
-        resolved_host = host_map.get(machine, machine)
-        cmd = ["ssh", "-o", "ConnectTimeout=5", resolved_host, script]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        if "@" in resolved_host:
-            user, host = resolved_host.split("@", 1)
+    # API 서버 자신의 머신이면 LOCAL_SSH_ADDR 사용
+    if machine == local_machine:
+        local_ssh = os.getenv("LOCAL_SSH_ADDR", "")
+        if "@" in local_ssh:
+            user, host = local_ssh.split("@", 1)
+        elif local_ssh:
+            user, host = os.getenv("USER", "user"), local_ssh
         else:
-            user, host = os.getenv("USER", "user"), resolved_host
+            return {"error": "LOCAL_SSH_ADDR 환경변수가 설정되지 않았습니다."}
+    elif machine in host_map:
+        resolved = host_map[machine]
+        if "@" in resolved:
+            user, host = resolved.split("@", 1)
+        else:
+            user, host = os.getenv("USER", "user"), resolved
+    else:
+        return {"error": f"머신 '{machine}'의 SSH 주소를 찾을 수 없습니다. REMOTE_HOSTS를 확인하세요."}
 
-        ide_path = result.stdout.strip()
-        if not ide_path:
-            return {"error": "원격 서버에서 IntelliJ 설치 경로를 찾을 수 없습니다."}
-
-        return {
-            "success": True,
-            "ide_path": ide_path,
-            "user": user,
-            "host": host,
-            "port": 22,
-            "project_path": project_path
-        }
-    except Exception as e:
-        return {"error": str(e)}
+    return {
+        "success": True,
+        "is_local": False,
+        "user": user,
+        "host": host,
+        "port": 22,
+        "project_path": project_path
+    }
 
 
 app.add_middleware(

@@ -19,6 +19,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-claude-sonnet-4-20250514}
       - DATA_PATH=/data
+      - LOCAL_MACHINE=${LOCAL_MACHINE:-local}
+      - CLIENT_MACHINE=${CLIENT_MACHINE:-mac}
+      - LOCAL_SSH_ADDR=${LOCAL_SSH_ADDR}
       - REMOTE_HOSTS=${REMOTE_HOSTS}
       - JIRA_URL=${JIRA_URL}
       - JIRA_EMAIL=${JIRA_EMAIL}
