@@ -766,7 +766,7 @@ async def create_task_stream(
             "success": True,
             "task_name": task_name,
             "worktree_path": worktree_result.get("worktree"),
-            "claude_command": session_result.get("command") if session_result.get("success") else f"cd {worktree_result.get('worktree')} && claude --continue",
+            "claude_command": session_result.get("command") if session_result.get("success") else f"cd {worktree_result.get('worktree')} && claude",
             "warning": final_warning
         }
         yield f"data: {json_module.dumps(final_data, ensure_ascii=False)}\n\n"

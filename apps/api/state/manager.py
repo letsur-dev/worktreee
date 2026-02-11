@@ -957,34 +957,32 @@ echo "Rebase 완료: origin/{base_branch}"
             if notion_parts:
                 notion_content = "\n" + "\n\n".join(notion_parts) + "\n"
 
-        # Claude에게 전달할 프롬프트
-        prompt = f"""이 레포지토리를 분석하고 다음 태스크를 이해해주세요.
+        # TASK.md 컨텍스트 파일 생성
+        task_md = f"""# Task: {task_name}
 
-## 태스크 정보
+## 정보
 - 프로젝트: {project}
 - 브랜치: {branch}
 - 워크트리: {worktree_path}
 
-## 태스크 컨텍스트
+## 컨텍스트
 {context}
 {jira_content}{notion_content}
 ## 요청사항
-1. 레포지토리 구조를 파악해주세요
-2. 태스크 수행에 필요한 파일들을 찾아주세요
-3. 구현 계획을 간단히 세워주세요
-
-분석이 완료되면 사용자가 'claude --continue'로 이어서 작업할 수 있습니다."""
+1. 레포지토리 구조를 파악하고 태스크에 필요한 파일들을 찾아주세요
+2. 구현 계획을 세워주세요
+"""
 
         machine = proj.get("machine", "local")
         is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
 
         if is_local:
-            result = self._start_claude_session_local(worktree_path, prompt)
+            result = self._start_claude_session_local(worktree_path, task_md)
         else:
             resolved_host = self._resolve_host(machine)
             if isinstance(resolved_host, dict):
                 return resolved_host
-            result = self._start_claude_session_remote(worktree_path, prompt, resolved_host)
+            result = self._start_claude_session_remote(worktree_path, task_md, resolved_host)
 
         # 세션 정보 저장
         if result.get("success"):
@@ -996,58 +994,36 @@ echo "Rebase 완료: origin/{base_branch}"
 
         return result
 
-    def _start_claude_session_local(self, worktree_path: str, prompt: str) -> dict:
-        """로컬에서 Claude 세션 시작 (백그라운드, --continue로 이어서 작업 가능)"""
-        # 워크트리 존재 확인
+    def _start_claude_session_local(self, worktree_path: str, task_md: str) -> dict:
+        """로컬 워크트리에 TASK.md 컨텍스트 파일 작성"""
         if not Path(worktree_path).exists():
             return {"error": f"워크트리 경로가 존재하지 않습니다: {worktree_path}"}
 
-        # Claude 세션을 백그라운드에서 시작 (Popen으로 비동기 실행)
         try:
-            # 백그라운드에서 Claude 실행 - 기다리지 않고 바로 반환
-            # --dangerously-skip-permissions: 신뢰 질문 등으로 인한 블로킹 방지
-            subprocess.Popen(
-                ["claude", "-p", prompt, "--print", "--dangerously-skip-permissions"],
-                cwd=worktree_path,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL, # 입력 대기 원천 차단
-                start_new_session=True,  # 부모 프로세스와 분리
-            )
-        except FileNotFoundError:
-            return {"error": "Claude CLI를 찾을 수 없습니다. claude가 설치되어 있는지 확인하세요."}
+            task_md_path = Path(worktree_path) / "TASK.md"
+            task_md_path.write_text(task_md, encoding="utf-8")
         except Exception as e:
-            return {"error": f"Claude 세션 시작 실패: {str(e)}"}
+            return {"error": f"TASK.md 작성 실패: {str(e)}"}
 
-        # 백그라운드에서 세션 시작 중 - --continue 명령어 반환
-        command = f"cd {worktree_path} && claude --continue"
+        command = f"cd {worktree_path} && claude"
 
         return {
             "success": True,
             "worktree": worktree_path,
             "command": command,
-            "session_starting": True,  # 세션이 백그라운드에서 시작 중임을 표시
-            "message": f"세션이 백그라운드에서 시작 중입니다. 잠시 후 다음 명령어로 작업하세요:\n```\n{command}\n```"
+            "message": f"TASK.md가 생성되었습니다. 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
         }
 
-    def _start_claude_session_remote(self, worktree_path: str, prompt: str, host: str) -> dict:
-        """원격에서 Claude 세션 시작"""
-        worktree_path = worktree_path.replace("~", "$HOME")
-        # 프롬프트에서 특수문자 이스케이프
-        escaped_prompt = prompt.replace("'", "'\\''")
+    def _start_claude_session_remote(self, worktree_path: str, task_md: str, host: str) -> dict:
+        """원격 워크트리에 TASK.md 컨텍스트 파일 작성"""
+        remote_path = worktree_path.replace("~", "$HOME")
+        escaped_content = task_md.replace("'", "'\\''")
 
-        # SSH non-interactive shell에서 PATH 문제 해결
-        # .zshrc 또는 .bashrc를 source해서 nvm/PATH 설정 로드
         script = f'''
-# 쉘 환경 로드 (zsh 또는 bash)
-if [ -f "$HOME/.zshrc" ]; then
-    source "$HOME/.zshrc" 2>/dev/null
-elif [ -f "$HOME/.bashrc" ]; then
-    source "$HOME/.bashrc" 2>/dev/null
-fi
-
-cd {worktree_path} || exit 1
-claude -p '{escaped_prompt}' --print --dangerously-skip-permissions
+cd {remote_path} || exit 1
+cat > TASK.md << 'TASK_EOF'
+{task_md}
+TASK_EOF
 '''
         cmd = [
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
@@ -1055,16 +1031,18 @@ claude -p '{escaped_prompt}' --print --dangerously-skip-permissions
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
-                return {"error": f"Claude 실행 실패: {result.stderr or result.stdout}"}
+                return {"error": f"TASK.md 작성 실패: {result.stderr or result.stdout}"}
+
+            command = f"cd {worktree_path} && claude"
 
             return {
                 "success": True,
                 "worktree": worktree_path,
                 "host": host,
-                "analysis": result.stdout,
-                "message": f"세션 시작 완료. 원격에서 'cd {worktree_path} && claude --continue'로 이어서 작업하세요."
+                "command": command,
+                "message": f"TASK.md가 생성되었습니다. 원격에서 다음 명령어로 작업을 시작하세요:\n```\n{command}\n```"
             }
         except subprocess.TimeoutExpired:
             return {"error": "SSH/Claude 세션 타임아웃"}
