@@ -1085,9 +1085,12 @@ export default function ProjectsPage() {
           console.log("Opening local IDE:", url);
           window.location.assign(url);
         } else {
-          // 원격: JetBrains Gateway 호출 (productCode 사용, Gateway가 IDE 자동 탐지)
+          // 원격: JetBrains Gateway 호출 (idePath 있으면 사용, 없으면 productCode 폴백)
           const targetPath = data.project_path || projectPath;
-          const scheme = `jetbrains-gateway://connect#type=ssh&host=${data.host}&port=${data.port}&user=${data.user}&productCode=IU&projectPath=${encodeURIComponent(targetPath)}&deploy=false`;
+          const ideParam = data.ide_path
+            ? `&idePath=${encodeURIComponent(data.ide_path)}`
+            : `&productCode=IU`;
+          const scheme = `jetbrains-gateway://connect#type=ssh&host=${data.host}&port=${data.port}&user=${data.user}${ideParam}&projectPath=${encodeURIComponent(targetPath)}&deploy=false`;
           window.location.href = scheme;
         }
       } else {

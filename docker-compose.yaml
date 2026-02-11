@@ -13,6 +13,7 @@ services:
       - ${HOME}/.claude:${HOME}/.claude
       - ${HOME}/.config/gh:${HOME}/.config/gh:ro
       - ${HOME}/.mcp-auth:${HOME}/.mcp-auth:ro
+      - ${HOME}/.cache/JetBrains:${HOME}/.cache/JetBrains:ro
     environment:
       - HOME=${HOME}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}

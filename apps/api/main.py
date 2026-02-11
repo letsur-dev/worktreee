@@ -136,7 +136,8 @@ async def get_ide_path(request: IDEPathRequest):
             "project_path": project_path
         }
 
-    # 원격: SSH 연결 정보만 반환 (IDE 경로 탐색 불필요, Gateway가 알아서 처리)
+    # 원격: SSH 연결 정보 + IDE 경로 탐색
+    import subprocess
     remote_hosts = os.getenv("REMOTE_HOSTS", "")
     local_machine = os.getenv("LOCAL_MACHINE", "local")
     host_map = {}
@@ -163,7 +164,34 @@ async def get_ide_path(request: IDEPathRequest):
     else:
         return {"error": f"머신 '{machine}'의 SSH 주소를 찾을 수 없습니다. REMOTE_HOSTS를 확인하세요."}
 
-    return {
+    # 원격 IDE 백엔드 경로 탐색 (jg 방식)
+    ide_path = None
+    if machine == local_machine:
+        # API 서버 자신 → 파일시스템에서 직접 탐색
+        import glob
+        home = os.getenv("HOME", f"/home/{user}")
+        candidates = sorted(
+            glob.glob(f"{home}/.cache/JetBrains/RemoteDev/dist/*idea*"),
+            reverse=True
+        )
+        if candidates:
+            ide_path = candidates[0]
+    else:
+        # 원격 머신 → SSH로 탐색
+        ssh_target = f"{user}@{host}"
+        try:
+            result = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                 ssh_target,
+                 "ls -d ~/.cache/JetBrains/RemoteDev/dist/*idea* 2>/dev/null | sort -r | head -1"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ide_path = result.stdout.strip()
+        except Exception:
+            pass
+
+    resp = {
         "success": True,
         "is_local": False,
         "user": user,
@@ -171,6 +199,9 @@ async def get_ide_path(request: IDEPathRequest):
         "port": 22,
         "project_path": project_path
     }
+    if ide_path:
+        resp["ide_path"] = ide_path
+    return resp
 
 
 app.add_middleware(
