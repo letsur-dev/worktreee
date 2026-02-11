@@ -183,7 +183,7 @@ class StateManager:
         return {"success": True, "project": project, "task": task_name}
 
     def delete_task(self, project: str, task_name: str, cleanup_worktree: bool = True) -> dict:
-        """태스크를 삭제합니다. 워크트리도 함께 정리할 수 있습니다."""
+        """태스크를 삭제합니다. 워크트리와 브랜치도 함께 정리합니다."""
         data = self._load()
         if project not in data["projects"]:
             return {"error": f"프로젝트 '{project}'을(를) 찾을 수 없습니다."}
@@ -194,18 +194,29 @@ class StateManager:
 
         task = proj["tasks"][task_name]
         worktree_path = task.get("worktree")
+        branch = task.get("branch")
         machine = proj.get("machine", "local")
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
 
         # 워크트리 정리
         cleanup_result = None
         if cleanup_worktree and worktree_path:
-            is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
             if is_local:
                 cleanup_result = self._cleanup_worktree_local(proj["repo_path"], worktree_path)
             else:
                 resolved_host = self._resolve_host(machine)
                 if not isinstance(resolved_host, dict):
                     cleanup_result = self._cleanup_worktree_remote(proj["repo_path"], worktree_path, resolved_host)
+
+        # 브랜치 정리
+        branch_cleanup = None
+        if cleanup_worktree and branch:
+            if is_local:
+                branch_cleanup = self._cleanup_branch_local(proj["repo_path"], branch)
+            else:
+                resolved_host = self._resolve_host(machine)
+                if not isinstance(resolved_host, dict):
+                    branch_cleanup = self._cleanup_branch_remote(proj["repo_path"], branch, resolved_host)
 
         # 태스크 삭제
         del proj["tasks"][task_name]
@@ -216,6 +227,7 @@ class StateManager:
             "project": project,
             "deleted_task": task_name,
             "worktree_cleanup": cleanup_result,
+            "branch_cleanup": branch_cleanup,
         }
 
     def archive_task(self, project: str, task_name: str) -> dict:
@@ -294,6 +306,37 @@ git worktree remove "{worktree_path}" --force
             if result.returncode != 0:
                 return {"error": result.stderr or result.stdout}
             return {"success": True, "removed": worktree_path, "host": host}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _cleanup_branch_local(self, repo_path: str, branch: str) -> dict:
+        """로컬 브랜치 삭제"""
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo_path, "branch", "-D", branch],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                # 이미 없거나 현재 체크아웃된 브랜치면 무시
+                return {"skipped": result.stderr.strip()}
+            return {"success": True, "deleted_branch": branch}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _cleanup_branch_remote(self, repo_path: str, branch: str, host: str) -> dict:
+        """원격 브랜치 삭제"""
+        remote_repo = repo_path.replace("~", "$HOME")
+        script = f'''
+cd {remote_repo} || exit 1
+git branch -D "{branch}" 2>/dev/null || true
+'''
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10", host, script]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                return {"skipped": result.stderr.strip()}
+            return {"success": True, "deleted_branch": branch, "host": host}
         except Exception as e:
             return {"error": str(e)}
 
