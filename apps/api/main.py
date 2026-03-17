@@ -968,7 +968,7 @@ async def sync_projects():
     results = []
 
     for project_name, project in data.get("projects", {}).items():
-        if project.get("deleted"):
+        if project.get("deleted_at"):
             continue
 
         repo_path = project.get("repo_path")
