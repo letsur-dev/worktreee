@@ -261,6 +261,43 @@ async def api_list_projects():
     return {"projects": projects}
 
 
+@app.get("/api/archived-projects")
+async def api_archived_projects():
+    """아카이브된 프로젝트 목록"""
+    from state.manager import StateManager
+
+    sm = StateManager()
+    data = sm._load()
+
+    projects = []
+    for name, info in data.get('projects', {}).items():
+        if not info.get('deleted_at'):
+            continue
+
+        tasks = []
+        for task_name, task in info.get('tasks', {}).items():
+            tasks.append({
+                "name": task_name,
+                "branch": task.get('branch', ''),
+                "status": task.get('status', 'pending'),
+                "worktree": task.get('worktree'),
+                "created": task.get('created'),
+                "pr": task.get('pr'),
+            })
+
+        projects.append({
+            "name": name,
+            "title": info.get('title'),
+            "repo_path": info.get('repo_path', ''),
+            "machine": info.get('machine', ''),
+            "task_count": len(tasks),
+            "tasks": tasks,
+            "deleted_at": info.get('deleted_at'),
+        })
+
+    return {"projects": projects}
+
+
 @app.get("/api/graphs")
 async def api_list_graphs():
     """그래프 목록 API (JSON)"""
@@ -859,6 +896,38 @@ async def restore_task(request: TaskActionRequest):
         return TaskActionResponse(success=False, error=result["error"])
 
     return TaskActionResponse(success=True, message=f"태스크 '{request.task_name}' 복구됨")
+
+
+class ProjectActionRequest(BaseModel):
+    project: str
+
+
+@app.post("/api/archive-project", response_model=TaskActionResponse)
+async def archive_project(request: ProjectActionRequest):
+    """프로젝트 아카이브 (soft delete)"""
+    from state.manager import StateManager
+
+    sm = StateManager()
+    result = sm.delete_project(request.project)
+
+    if "error" in result:
+        return TaskActionResponse(success=False, error=result["error"])
+
+    return TaskActionResponse(success=True, message=f"프로젝트 '{request.project}' 아카이브됨")
+
+
+@app.post("/api/restore-project", response_model=TaskActionResponse)
+async def restore_project(request: ProjectActionRequest):
+    """아카이브된 프로젝트 복구"""
+    from state.manager import StateManager
+
+    sm = StateManager()
+    result = sm.restore_project(request.project)
+
+    if "error" in result:
+        return TaskActionResponse(success=False, error=result["error"])
+
+    return TaskActionResponse(success=True, message=f"프로젝트 '{request.project}' 복구됨")
 
 
 class ClaudeSessionResponse(BaseModel):
