@@ -49,11 +49,18 @@ function fallbackCopy(text: string): boolean {
   }
 }
 
+// /home/amos/Documents/letsur/... → letsur/...
+function shortenPath(path: string): string {
+  const match = path.match(/Documents\/(.+)/);
+  return match ? match[1] : path;
+}
+
 function CopyButton({ text, label = "📋 path", className = "" }: { text: string; label?: string; className?: string }) {
   const [copied, setCopied] = useState(false);
+  const shortText = shortenPath(text);
 
   const handleCopy = async () => {
-    const success = await copyToClipboard(text);
+    const success = await copyToClipboard(shortText);
     if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -68,7 +75,7 @@ function CopyButton({ text, label = "📋 path", className = "" }: { text: strin
           ? "text-green-400 bg-green-600/20"
           : "text-gray-400 hover:text-gray-200 hover:bg-gray-700"
       } ${className}`}
-      title={text}
+      title={shortText}
     >
       {copied ? "✓ 복사됨" : label}
     </button>
@@ -891,6 +898,23 @@ function SortableProjectCard({
   isOpeningIDE,
 }: SortableProjectCardProps) {
   const [showGitLog, setShowGitLog] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+
+  const archiveProject = async () => {
+    try {
+      const res = await fetch("/api/archive-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: project.name }),
+      });
+      if (res.ok) {
+        onTaskUpdated();
+      }
+    } catch (e) {
+      console.error("Failed to archive project:", e);
+    }
+    setShowArchiveConfirm(false);
+  };
 
   const {
     attributes,
@@ -981,6 +1005,13 @@ function SortableProjectCard({
             {isOpeningIDE ? "..." : "🛋️ IDE"}
           </button>
           <button
+            onClick={() => setShowArchiveConfirm(true)}
+            className="px-2 py-1 text-gray-500 hover:text-warning-400 hover:bg-gray-700 text-xs rounded-lg transition"
+            title="프로젝트 아카이브"
+          >
+            📦
+          </button>
+          <button
             onClick={onNewTask}
             className="px-3 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-lg transition"
           >
@@ -988,6 +1019,15 @@ function SortableProjectCard({
           </button>
         </div>
       </div>
+
+      {showArchiveConfirm && (
+        <ConfirmModal
+          title="프로젝트 아카이브"
+          message={`'${project.title || project.name}' 프로젝트를 아카이브합니다. 아카이브 페이지에서 복구할 수 있습니다.`}
+          onConfirm={archiveProject}
+          onCancel={() => setShowArchiveConfirm(false)}
+        />
+      )}
 
       {showGitLog && (
         <div className="px-5 pb-3">
