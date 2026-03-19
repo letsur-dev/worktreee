@@ -11,6 +11,7 @@ const COMMANDS: Record<string, { desc: string; aliases?: string[] }> = {
   list: { desc: "List all projects and tasks", aliases: ["ls"] },
   go: { desc: "Navigate to a task worktree", aliases: ["switch", "sw"] },
   status: { desc: "Show current task/project status", aliases: ["st"] },
+  pin: { desc: "Jump to a pinned task", aliases: ["p"] },
   archive: { desc: "Archive a task" },
   delete: { desc: "Delete a task and its worktree", aliases: ["rm"] },
   sync: { desc: "Sync projects and task statuses" },

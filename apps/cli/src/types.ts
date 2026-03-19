@@ -7,6 +7,7 @@ export interface Task {
   worktree?: string;
   created?: string;
   archived_at?: string;
+  pinned?: boolean;
   pr?: PRInfo;
 }
 
