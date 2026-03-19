@@ -1,8 +1,9 @@
-import { listProjects, suggestBranchNames, createTaskStream } from "../api";
+import { listProjects, suggestBranchNames, createTaskStream, addProject } from "../api";
 import { detectContext } from "../lib/context";
 import { bold, cyan, dim, green, red, yellow } from "../lib/colors";
-import { select, input, spinner } from "../lib/prompt";
+import { select, input, spinner, confirm } from "../lib/prompt";
 import { parseSSE } from "../lib/sse";
+import { execSync } from "child_process";
 
 function extractFlag(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -53,14 +54,53 @@ export default async function create(args: string[]) {
   }
 
   // 1. Detect or select project
-  const ctx = detectContext(process.cwd(), projects);
+  const cwd = process.cwd();
+  const ctx = detectContext(cwd, projects);
   let project = ctx.project;
 
   if (parsed.project) {
     project = projects.find((p) => p.name === parsed.project);
     if (!project) {
       console.error(red(`Project '${parsed.project}' not found.`));
+      console.error(dim(`  등록된 프로젝트: ${projects.map(p => p.name).join(", ") || "없음"}`));
+      console.error(dim(`  프로젝트 등록: wte add`));
       process.exit(1);
+    }
+  }
+
+  // 프로젝트 감지 실패 시 현재 디렉토리가 git repo면 자동 등록 제안
+  if (!project && projects.length > 0) {
+    let gitRoot: string | null = null;
+    try {
+      gitRoot = execSync("git rev-parse --show-toplevel", {
+        cwd,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+    } catch {}
+
+    if (gitRoot) {
+      const repoName = require("path").basename(gitRoot);
+      console.log(yellow(`현재 디렉토리(${repoName})가 등록된 프로젝트가 아닙니다.`));
+      const shouldAdd = await confirm("프로젝트로 등록할까요?", true);
+
+      if (shouldAdd) {
+        const hostname = require("os").hostname();
+        const machine = hostname.toLowerCase().includes("nuc")
+          ? "nuc"
+          : process.platform === "darwin" ? "mac" : "nuc";
+
+        const result = await addProject(gitRoot, machine);
+        if (result.success) {
+          console.log(green(`✓ '${result.project}' 등록 완료`));
+          // 프로젝트 목록 갱신
+          const refreshed = await listProjects();
+          project = refreshed.find((p) => p.name === result.project);
+        } else {
+          console.error(red(`등록 실패: ${result.error}`));
+          process.exit(1);
+        }
+      }
     }
   }
 

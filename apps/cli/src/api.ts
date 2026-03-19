@@ -99,6 +99,16 @@ export async function getPRInfo(
   return post("/api/pr-info", { repo_path, branch });
 }
 
+// ─── Add Project ───
+
+export async function addProject(
+  repo_path: string,
+  machine: string,
+  title?: string,
+): Promise<{ success: boolean; project?: string; error?: string }> {
+  return post("/api/add-project", { repo_path, machine, title });
+}
+
 // ─── Health ───
 
 export async function healthCheck(): Promise<boolean> {

@@ -5,6 +5,7 @@ import { bold, cyan, dim, gray, red, yellow } from "./lib/colors";
 const VERSION = "0.1.0";
 
 const COMMANDS: Record<string, { desc: string; aliases?: string[] }> = {
+  add: { desc: "Register current repo as a project" },
   create: { desc: "Create a new task with worktree" },
   list: { desc: "List all projects and tasks", aliases: ["ls"] },
   go: { desc: "Navigate to a task worktree", aliases: ["switch", "sw"] },
