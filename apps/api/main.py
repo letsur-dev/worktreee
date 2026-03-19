@@ -246,6 +246,7 @@ async def api_list_projects():
                 "worktree": task.get('worktree'),
                 "created": task.get('created'),
                 "archived_at": task.get('archived_at'),
+                "pinned": task.get('pinned', False),
                 "pr": task.get('pr'),
             })
 
@@ -854,6 +855,29 @@ class TaskActionResponse(BaseModel):
     success: bool
     message: str | None = None
     error: str | None = None
+
+
+@app.post("/api/pin-task", response_model=TaskActionResponse)
+async def pin_task(request: TaskActionRequest):
+    """태스크 핀 토글"""
+    from state.manager import StateManager
+
+    sm = StateManager()
+    data = sm._load()
+
+    proj = data["projects"].get(request.project)
+    if not proj:
+        return TaskActionResponse(success=False, error="프로젝트 없음")
+
+    task = proj.get("tasks", {}).get(request.task_name)
+    if not task:
+        return TaskActionResponse(success=False, error="태스크 없음")
+
+    pinned = not task.get("pinned", False)
+    task["pinned"] = pinned
+    sm._save(data)
+
+    return TaskActionResponse(success=True, message=f"{'📌 핀 고정' if pinned else '핀 해제'}됨")
 
 
 @app.post("/api/delete-task", response_model=TaskActionResponse)

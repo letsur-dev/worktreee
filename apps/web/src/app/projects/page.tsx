@@ -194,6 +194,19 @@ function TaskActions({ project, task, onUpdated, onOpenIDE, isOpeningIDE }: Task
   const [isLoading, setIsLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"archive" | "delete" | null>(null);
 
+  const togglePin = async () => {
+    try {
+      const res = await fetch("/api/pin-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project, task_name: task.name }),
+      });
+      if (res.ok) onUpdated();
+    } catch (e) {
+      console.error("Failed to toggle pin:", e);
+    }
+  };
+
   const executeArchive = async () => {
     setConfirmAction(null);
     setIsLoading(true);
@@ -295,29 +308,42 @@ function TaskActions({ project, task, onUpdated, onOpenIDE, isOpeningIDE }: Task
           onCancel={() => setConfirmAction(null)}
         />
       )}
-      <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-        {task.worktree && (
+      <div className="flex gap-1 ml-auto items-center">
+        <button
+          onClick={togglePin}
+          className={`px-1.5 py-0.5 text-xs rounded transition ${
+            task.pinned
+              ? "text-yellow-400"
+              : "text-gray-600 hover:text-yellow-400"
+          }`}
+          title={task.pinned ? "핀 해제" : "핀 고정"}
+        >
+          📌
+        </button>
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {task.worktree && (
+            <button
+              onClick={() => onOpenIDE(project, task.worktree!)}
+              disabled={isOpeningIDE}
+              className="px-2 py-0.5 text-xs text-brand-400 hover:bg-brand-600/20 rounded transition disabled:opacity-50"
+              title="IntelliJ에서 열기"
+            >
+              🛋️
+            </button>
+          )}
           <button
-            onClick={() => onOpenIDE(project, task.worktree!)}
-            disabled={isOpeningIDE}
-            className="px-2 py-0.5 text-xs text-brand-400 hover:bg-brand-600/20 rounded transition disabled:opacity-50"
-            title="IntelliJ에서 열기"
+            onClick={() => setConfirmAction("archive")}
+            className="px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700 rounded transition"
           >
-            🛋️
+            아카이브
           </button>
-        )}
-        <button
-          onClick={() => setConfirmAction("archive")}
-          className="px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-700 rounded transition"
-        >
-          아카이브
-        </button>
-        <button
-          onClick={() => setConfirmAction("delete")}
-          className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-600/20 rounded transition"
-        >
-          삭제
-        </button>
+          <button
+            onClick={() => setConfirmAction("delete")}
+            className="px-2 py-0.5 text-xs text-red-400 hover:bg-red-600/20 rounded transition"
+          >
+            삭제
+          </button>
+        </div>
       </div>
     </>
   );
@@ -933,7 +959,9 @@ function SortableProjectCard({
   };
 
   const activeTaskCount = project.tasks.filter((t) => !t.archived_at).length;
-  const activeTasks = project.tasks.filter((t) => !t.archived_at);
+  const activeTasks = project.tasks
+    .filter((t) => !t.archived_at)
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
   const archivedTasks = project.tasks.filter((t) => t.archived_at);
 
   return (
@@ -1042,7 +1070,11 @@ function SortableProjectCard({
               {activeTasks.map((task) => (
                 <div
                   key={task.name}
-                  className="group p-3 bg-gray-800/50 rounded-lg border border-gray-700/50 hover:bg-gray-800 transition"
+                  className={`group p-3 rounded-lg border hover:bg-gray-800 transition ${
+                    task.pinned
+                      ? "bg-yellow-900/10 border-yellow-700/30"
+                      : "bg-gray-800/50 border-gray-700/50"
+                  }`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <StatusBadge status={task.status} />
@@ -1331,6 +1363,43 @@ export default function ProjectsPage() {
           </button>
         </div>
       </div>
+
+      {/* 핀된 태스크 모아보기 */}
+      {(() => {
+        const pinnedTasks = projects.flatMap((p) =>
+          p.tasks
+            .filter((t) => t.pinned && !t.archived_at)
+            .map((t) => ({ ...t, projectName: p.name, projectTitle: p.title }))
+        );
+        if (pinnedTasks.length === 0) return null;
+        return (
+          <div className="mb-6 p-4 bg-yellow-900/10 rounded-xl border border-yellow-700/30">
+            <h2 className="text-sm font-medium text-yellow-400 mb-3">
+              📌 Pinned ({pinnedTasks.length})
+            </h2>
+            <div className="space-y-2">
+              {pinnedTasks.map((task) => (
+                <div
+                  key={`${task.projectName}-${task.name}`}
+                  className="flex items-center gap-2 flex-wrap"
+                >
+                  <StatusBadge status={task.status} />
+                  <span className="font-medium text-gray-100 text-sm">
+                    {task.name}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-gray-800 text-gray-400 rounded text-xs">
+                    {task.projectTitle || task.projectName}
+                  </span>
+                  {task.pr?.number && (
+                    <PRBadge pr={task.pr} />
+                  )}
+                  {task.worktree && <CopyButton text={task.worktree} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {projects.length === 0 ? (
         <p className="text-gray-400">등록된 프로젝트가 없습니다.</p>

@@ -12,6 +12,7 @@ export interface Task {
   worktree?: string;
   created?: string;
   archived_at?: string;
+  pinned?: boolean;
   pr?: PRInfo;  // sync 시 저장된 PR 정보
 }
 
