@@ -1,4 +1,4 @@
-import { listProjects, suggestBranchNames, createTaskStream, addProject } from "../api";
+import { listProjects, suggestBranchNames, createTaskStream, addProject, pinTask } from "../api";
 import { detectContext } from "../lib/context";
 import { bold, cyan, dim, green, red, yellow } from "../lib/colors";
 import { select, input, spinner, confirm } from "../lib/prompt";
@@ -204,6 +204,15 @@ export default async function create(args: string[]) {
 
       if (event.warning) {
         console.log(yellow(`  ⚠ ${event.warning}`));
+      }
+
+      // 핀 고정 제안
+      if (event.task_name) {
+        const shouldPin = await confirm("📌 핀 고정할까요?", true);
+        if (shouldPin) {
+          await pinTask(project.name, event.task_name);
+          console.log(green("  ✓ 핀 고정됨"));
+        }
       }
 
       // Output __WT_CD__ for shell wrapper to detect

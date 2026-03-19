@@ -99,6 +99,15 @@ export async function getPRInfo(
   return post("/api/pr-info", { repo_path, branch });
 }
 
+// ─── Pin Task ───
+
+export async function pinTask(
+  project: string,
+  task_name: string,
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  return post("/api/pin-task", { project, task_name });
+}
+
 // ─── Add Project ───
 
 export async function addProject(
