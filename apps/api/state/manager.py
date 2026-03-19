@@ -52,6 +52,24 @@ class StateManager:
             "tasks": {},
         }
         self._save(data)
+
+        # worktrees 디렉토리 미리 생성
+        worktrees_dir = f"{repo_path}-worktrees"
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+        if is_local:
+            os.makedirs(worktrees_dir, exist_ok=True)
+        else:
+            resolved_host = self._resolve_host(machine)
+            if not isinstance(resolved_host, dict):
+                try:
+                    subprocess.run(
+                        ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+                         resolved_host, f'mkdir -p "{worktrees_dir}"'],
+                        capture_output=True, timeout=10
+                    )
+                except Exception:
+                    pass  # 실패해도 태스크 생성 시 다시 시도됨
+
         return {"success": True, "project": name}
 
     def list_projects(self, include_deleted: bool = False) -> list[dict]:
