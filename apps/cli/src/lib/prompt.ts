@@ -21,29 +21,37 @@ export async function select<T>(opts: {
   }
 
   let cursor = 0;
+  let renderedLines = 0;
+
+  const countLines = (text: string): number => {
+    const cols = process.stdout.columns || 80;
+    return text.split("\n").reduce((sum, line) => {
+      // Strip ANSI codes for accurate length
+      const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+      return sum + Math.max(1, Math.ceil(stripped.length / cols));
+    }, 0);
+  };
 
   const render = () => {
-    // Move up and clear previous render
-    if (cursor >= 0) {
-      process.stdout.write(`\x1b[${options.length + 1}A\x1b[J`);
+    // Clear previous render
+    if (renderedLines > 0) {
+      process.stdout.write(`\x1b[${renderedLines}A\x1b[J`);
     }
-    console.log(bold(cyan("? ")) + bold(message));
+    const lines: string[] = [];
+    lines.push(bold(cyan("? ")) + bold(message));
     for (let i = 0; i < options.length; i++) {
       const prefix = i === cursor ? green("> ") : "  ";
       const label = i === cursor ? bold(options[i].label) : options[i].label;
       const hint = options[i].hint ? dim(` ${options[i].hint}`) : "";
-      console.log(`${prefix}${label}${hint}`);
+      lines.push(`${prefix}${label}${hint}`);
     }
+    const output = lines.join("\n");
+    console.log(output);
+    renderedLines = countLines(output);
   };
 
   // Initial render
-  console.log(bold(cyan("? ")) + bold(message));
-  for (let i = 0; i < options.length; i++) {
-    const prefix = i === cursor ? green("> ") : "  ";
-    const label = i === cursor ? bold(options[i].label) : options[i].label;
-    const hint = options[i].hint ? dim(` ${options[i].hint}`) : "";
-    console.log(`${prefix}${label}${hint}`);
-  }
+  render();
 
   return new Promise<T>((resolve) => {
     const stdin = process.stdin;
