@@ -311,14 +311,22 @@ function TaskActions({ project, task, onUpdated, onOpenIDE, isOpeningIDE }: Task
       <div className="flex gap-1 ml-auto items-center">
         <button
           onClick={togglePin}
-          className={`px-1.5 py-0.5 text-xs rounded transition ${
+          className={`p-1 rounded transition-all ${
             task.pinned
-              ? "text-yellow-400"
-              : "text-gray-600 hover:text-yellow-400"
+              ? "text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20"
+              : "text-gray-500 hover:text-gray-300"
           }`}
           title={task.pinned ? "핀 해제" : "핀 고정"}
         >
-          📌
+          {task.pinned ? (
+            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="currentColor">
+              <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a6 6 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 0 1-.707-.707l3.182-3.182L2.398 8.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a6 6 0 0 1 1.013.16l3.134-3.133a3 3 0 0 1-.04-.461c0-.43.109-1.022.589-1.503a.5.5 0 0 1 .354-.146z"/>
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 opacity-50" fill="none" stroke="currentColor" strokeWidth="1.2">
+              <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a6 6 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182a.5.5 0 0 1-.707-.707l3.182-3.182L2.398 8.23a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a6 6 0 0 1 1.013.16l3.134-3.133a3 3 0 0 1-.04-.461c0-.43.109-1.022.589-1.503a.5.5 0 0 1 .354-.146z"/>
+            </svg>
+          )}
         </button>
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {task.worktree && (
