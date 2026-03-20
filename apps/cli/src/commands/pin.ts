@@ -1,6 +1,7 @@
 import { listProjects } from "../api";
 import { bold, cyan, dim, green, red, yellow } from "../lib/colors";
 import { select } from "../lib/prompt";
+import { requestCd } from "../lib/cd";
 
 export default async function pin(args: string[]) {
   const projects = await listProjects();
@@ -23,7 +24,7 @@ export default async function pin(args: string[]) {
       return;
     }
     console.log(dim(`  ${task.projectTitle || task.projectName}/${task.name}`));
-    console.log(`__WT_CD__:${task.worktree}`);
+    requestCd(task.worktree);
     return;
   }
 
@@ -42,5 +43,5 @@ export default async function pin(args: string[]) {
   }
 
   console.log(dim(`  ${selected.projectTitle || selected.projectName}/${selected.name}`));
-  console.log(`__WT_CD__:${selected.worktree}`);
+  requestCd(selected.worktree);
 }

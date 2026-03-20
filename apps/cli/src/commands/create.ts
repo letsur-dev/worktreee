@@ -3,6 +3,7 @@ import { detectContext } from "../lib/context";
 import { bold, cyan, dim, green, red, yellow } from "../lib/colors";
 import { select, input, spinner, confirm } from "../lib/prompt";
 import { parseSSE } from "../lib/sse";
+import { requestCd } from "../lib/cd";
 import { execSync } from "child_process";
 
 function extractFlag(args: string[], flag: string): string | undefined {
@@ -215,9 +216,9 @@ export default async function create(args: string[]) {
         }
       }
 
-      // Output __WT_CD__ for shell wrapper to detect
+      // Shell wrapper will cd to this path
       if (event.worktree_path) {
-        console.log(`__WT_CD__:${event.worktree_path}`);
+        requestCd(event.worktree_path);
       }
     }
   }

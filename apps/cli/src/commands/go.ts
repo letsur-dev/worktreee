@@ -2,6 +2,7 @@ import { listProjects } from "../api";
 import { fuzzyMatchTasks } from "../lib/context";
 import { bold, cyan, dim, red, yellow } from "../lib/colors";
 import { select } from "../lib/prompt";
+import { requestCd } from "../lib/cd";
 
 export default async function go(args: string[]) {
   const query = args.join(" ").trim();
@@ -46,5 +47,5 @@ export default async function go(args: string[]) {
   }
 
   console.log(dim(`  ${project.name}/${task.name}`));
-  console.log(`__WT_CD__:${task.worktree}`);
+  requestCd(task.worktree);
 }
