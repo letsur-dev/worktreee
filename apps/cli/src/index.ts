@@ -56,8 +56,14 @@ function resolveCommand(name: string): string | undefined {
 async function main() {
   const args = process.argv.slice(2);
 
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+  if (args.includes("--help") || args.includes("-h")) {
     printHelp();
+    return;
+  }
+
+  if (args.length === 0) {
+    const mod = await import("./commands/pin.ts");
+    await mod.default([]);
     return;
   }
 
