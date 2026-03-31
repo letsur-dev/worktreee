@@ -21,9 +21,13 @@ function parseArgs(args: string[]): {
   branch?: string;
   project?: string;
   base?: string;
+  pin?: boolean;
+  noPin?: boolean;
 } {
   const flags: Record<string, string> = {};
   const positional: string[] = [];
+  let pin = false;
+  let noPin = false;
 
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === "--branch" || args[i] === "-b") && args[i + 1]) {
@@ -32,6 +36,10 @@ function parseArgs(args: string[]): {
       flags.project = args[++i];
     } else if (args[i] === "--base" && args[i + 1]) {
       flags.base = args[++i];
+    } else if (args[i] === "--pin") {
+      pin = true;
+    } else if (args[i] === "--no-pin") {
+      noPin = true;
     } else {
       positional.push(args[i]);
     }
@@ -42,6 +50,8 @@ function parseArgs(args: string[]): {
     branch: flags.branch,
     project: flags.project,
     base: flags.base,
+    pin,
+    noPin,
   };
 }
 
@@ -207,9 +217,14 @@ export default async function create(args: string[]) {
         console.log(yellow(`  ⚠ ${event.warning}`));
       }
 
-      // 핀 고정 제안
+      // 핀 고정
       if (event.task_name) {
-        const shouldPin = await confirm("📌 핀 고정할까요?", true);
+        let shouldPin = parsed.pin;
+        if (!parsed.pin && !parsed.noPin) {
+          // 인터랙티브일 때만 물어봄
+          const isTTY = typeof process.stdin.setRawMode === "function";
+          shouldPin = isTTY ? await confirm("📌 핀 고정할까요?", true) : false;
+        }
         if (shouldPin) {
           await pinTask(project.name, event.task_name);
           console.log(green("  ✓ 핀 고정됨"));
