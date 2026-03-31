@@ -663,6 +663,19 @@ git branch -D "{branch}" 2>/dev/null || true
         # 워크트리 폴더명: task_name 사용 (사용자가 지정한 그대로)
         # 브랜치명: branch 필드 사용 (feature/PROJ-123/xxx 형태 가능)
         folder_name = self._sanitize_branch_name(task_name)  # task_name 기반 폴더명
+
+        # 기존 worktree 탐색: worktrees 디렉토리에서 같은 이름의 폴더 찾기
+        worktrees_dir = f"{repo_path}-worktrees"
+        is_local = machine == "local" or machine.lower() == settings.local_machine.lower()
+        if is_local and os.path.isdir(worktrees_dir):
+            for entry in os.listdir(worktrees_dir):
+                if entry.startswith(folder_name) and os.path.isdir(os.path.join(worktrees_dir, entry)):
+                    existing_path = os.path.join(worktrees_dir, entry)
+                    if os.path.exists(os.path.join(existing_path, ".git")):
+                        logger.info(f"[create_worktree] 기존 워크트리 발견, 연결: {existing_path}")
+                        task["worktree"] = existing_path
+                        self._save(data)
+                        return {"success": True, "project": project, "task": task_name, "worktree": existing_path, "reused": True}
         # 짧은 해시 생성 (타임스탬프 기반, 7자)
         short_hash = hashlib.sha1(str(time.time()).encode()).hexdigest()[:7]
         # 워크트리 폴더 구조: {repo}-worktrees/{task_name}-{hash}
@@ -704,10 +717,14 @@ git branch -D "{branch}" 2>/dev/null || true
         try:
             logger.info(f"[worktree-local] repo={repo_path}, path={worktree_path}, branch={branch}, base={base}")
 
-            # 이미 워크트리가 있는지 확인
+            # 이미 워크트리가 있는지 확인 → 있으면 연결
             if os.path.exists(worktree_path):
-                logger.warning(f"[worktree-local] 디렉토리 이미 존재: {worktree_path}")
-                return {"error": f"디렉토리가 이미 존재합니다: {worktree_path}"}
+                git_dir = os.path.join(worktree_path, ".git")
+                if os.path.exists(git_dir):
+                    logger.info(f"[worktree-local] 기존 워크트리 연결: {worktree_path}")
+                    return {"success": True, "worktree": worktree_path, "reused": True}
+                logger.warning(f"[worktree-local] 디렉토리 이미 존재 (git 아님): {worktree_path}")
+                return {"error": f"디렉토리가 이미 존재합니다 (git worktree 아님): {worktree_path}"}
 
             # worktrees 디렉토리 생성
             worktrees_dir = os.path.dirname(worktree_path)
