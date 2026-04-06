@@ -36,11 +36,9 @@ export default async function add(args: string[]) {
   const machine = detectMachine();
   const repoName = require("path").basename(gitRoot);
 
-  // 이미 등록된 프로젝트인지 확인
+  // 이미 같은 경로로 등록된 프로젝트인지 확인
   const projects = await listProjects();
-  const existing = projects.find(
-    (p) => p.repo_path === gitRoot || p.name === repoName,
-  );
+  const existing = projects.find((p) => p.repo_path === gitRoot);
   if (existing) {
     console.log(yellow(`'${existing.name}'은(는) 이미 등록되어 있습니다.`));
     console.log(dim(`  ${existing.repo_path} [${existing.machine}]`));
