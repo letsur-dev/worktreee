@@ -35,6 +35,18 @@ ${bold("Commands:")}`);
   }
 
   console.log(`
+${bold("Non-interactive (for agents):")}
+  wte create -p <project> -b <branch> --pin "description"
+  wte create -p <project> -b <branch> --no-pin "description"
+  wte delete <task> --force
+  wte handoff write "context"
+  wte handoff append "more context"
+
+${bold("Workflow:")}
+  1. wte list                          # check project name
+  2. wte create -p proj -b feat/x ...  # create task + worktree
+  3. wte handoff write "## Goal\\n..."  # inject detailed context
+
 ${bold("Options:")}
   ${cyan("--help, -h")}    Show help
   ${cyan("--version, -v")} Show version
