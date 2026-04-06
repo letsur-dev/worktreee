@@ -4,9 +4,12 @@ import { bold, dim, green, red, yellow } from "../lib/colors";
 import { input, select } from "../lib/prompt";
 
 export default async function del(args: string[]) {
-  const query = args.join(" ").trim();
+  const force = args.includes("--force") || args.includes("-f");
+  const filtered = args.filter((a) => a !== "--force" && a !== "-f");
+  const query = filtered.join(" ").trim();
+
   if (!query) {
-    console.error(red("Usage: wte delete <task-name>"));
+    console.error(red("Usage: wte delete <task-name> [--force]"));
     process.exit(1);
   }
 
@@ -19,7 +22,7 @@ export default async function del(args: string[]) {
   }
 
   let match = matches[0];
-  if (matches.length > 1) {
+  if (matches.length > 1 && !force) {
     match = await select({
       message: "Multiple matches — select task to delete",
       options: matches.map((m) => ({
@@ -32,12 +35,14 @@ export default async function del(args: string[]) {
 
   const { project, task } = match;
 
-  console.log(yellow(`  ⚠ This will permanently delete '${bold(task.name)}' and its worktree.`));
-  const confirmation = await input(`Type '${task.name}' to confirm`);
+  if (!force) {
+    console.log(yellow(`  ⚠ This will permanently delete '${bold(task.name)}' and its worktree.`));
+    const confirmation = await input(`Type '${task.name}' to confirm`);
 
-  if (confirmation !== task.name) {
-    console.log(dim("  Cancelled."));
-    return;
+    if (confirmation !== task.name) {
+      console.log(dim("  Cancelled."));
+      return;
+    }
   }
 
   const result = await deleteTask(project.name, task.name);
